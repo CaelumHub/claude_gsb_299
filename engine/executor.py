@@ -276,7 +276,7 @@ class TestExecutor:
 
     # -- 单步骤执行 -------------------------------------------------------
     def _run_step(self, step: dict, variables: dict, case_id: str, idx: int,
-                  cancel_event=None) -> dict:
+                  cancel_event=None, response_sink=None) -> dict:
         action = step.get("action", "assert")
         name = step.get("name") or action
         started = time.time()
@@ -301,6 +301,19 @@ class TestExecutor:
                 )
                 save_as = step.get("save_as") or "resp"
                 variables[save_as] = resp
+                # 投递响应快照供契约校验（不影响用例自身的断言流程）
+                if response_sink is not None:
+                    try:
+                        response_sink({
+                            "step_index": idx,
+                            "method": method,
+                            "path": str(url).split("?", 1)[0],
+                            "url": str(url),
+                            "status": resp.get("status"),
+                            "body": resp.get("body"),
+                        })
+                    except Exception:  # noqa: BLE001  契约侧异常绝不能影响执行
+                        pass
                 return _done("passed", f"{method} {url} -> {resp['status']} ({resp['latency_ms']}ms)")
 
             if action == "set":
@@ -357,8 +370,15 @@ class TestExecutor:
 
     # -- 用例执行 ---------------------------------------------------------
     def execute_case(self, case: dict, env_config: dict = None,
-                     cancel_event=None, timeout: float = None) -> dict:
-        """执行一个用例，返回结构化的执行结果。"""
+                     cancel_event=None, timeout: float = None,
+                     response_sink=None) -> dict:
+        """执行一个用例，返回结构化的执行结果。
+
+        ``response_sink`` 是可选回调 ``f(snapshot)``：每发起一次 HTTP 请求
+        就把响应快照（方法 / 路径 / 状态码 / 响应体）投出去，供调度层在
+        用例结束后统一做接口契约校验。执行器本身不认识契约，保持「步骤
+        执行」与「契约校验」两个职责分离。
+        """
         env_config = env_config or {}
         case_id = case.get("id", new_id("case"))
         case_name = case.get("name", "未命名用例")
@@ -375,7 +395,11 @@ class TestExecutor:
         ]
         steps_out: list[dict] = []
         assertions: list[dict] = []
+        snapshots: list[dict] = []
         status = "passed"
+
+        def _sink(snapshot: dict) -> None:
+            snapshots.append(snapshot)
 
         if not case.get("enabled", True):
             return self._finalize(case, "skipped", steps_out, [], logs, started,
@@ -392,7 +416,9 @@ class TestExecutor:
                 logs.append(f"用例超时（>{timeout}s），在第 {idx} 步停止")
                 break
 
-            step_result = self._run_step(step, variables, case_id, idx, cancel_event)
+            step_result = self._run_step(step, variables, case_id, idx,
+                                         cancel_event,
+                                         response_sink=_sink if response_sink is None else response_sink)
             steps_out.append(step_result)
             logs.append(f"  步骤 {idx + 1}/{len(steps)} [{step_result['status']}] "
                         f"{step_result['name']}: {step_result['message']}")
@@ -410,10 +436,12 @@ class TestExecutor:
             logs.append(f"用例总耗时超过 {timeout}s")
 
         assertions = variables.get("_assertions", [])
-        return self._finalize(case, status, steps_out, assertions, logs, started)
+        return self._finalize(case, status, steps_out, assertions, logs, started,
+                              snapshots=snapshots)
 
     def _finalize(self, case: dict, status: str, steps: list, assertions: list,
-                  logs: list, started: float, message: str = "") -> dict:
+                  logs: list, started: float, message: str = "",
+                  snapshots: list = None) -> dict:
         return {
             "case_id": case.get("id"),
             "case_name": case.get("name", "未命名用例"),
@@ -425,4 +453,5 @@ class TestExecutor:
             "assertions": assertions,
             "logs": logs,
             "message": message,
+            "response_snapshots": snapshots or [],
         }

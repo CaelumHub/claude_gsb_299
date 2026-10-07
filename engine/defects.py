@@ -42,9 +42,27 @@ class DefectManager:
 
     def create_from_case(self, project_id: str, case_result: dict,
                          build_id: str) -> Optional[dict]:
-        """从失败的用例结果自动生成缺陷。"""
-        if case_result.get("status") not in ("failed", "error", "timeout"):
+        """从失败的用例结果自动生成缺陷（契约违背单独标注）。"""
+        status = case_result.get("status")
+        if status not in ("failed", "error", "timeout", "contract_violated"):
             return None
+
+        if status == "contract_violated":
+            msgs = []
+            for chk in case_result.get("contract_checks") or []:
+                for v in chk.get("violations") or []:
+                    msgs.append(f"{chk.get('method','')} {chk.get('path','')}@"
+                                f"v{chk.get('version')}: {v.get('message','')}")
+            return self.create(project_id, {
+                "title": f"[契约违背] {case_result.get('case_name')}",
+                "description": "\n".join(msgs)
+                or "接口响应违背契约，请查看构建报告中的契约违背明细。",
+                "severity": "major" if case_result.get("priority") in ("P0", "P1") else "minor",
+                "source_case_id": case_result.get("case_id"),
+                "source_build_id": build_id,
+                "tags": ["contract-violation"],
+            })
+
         reason = ""
         for a in case_result.get("assertions", []):
             if not a.get("ok"):

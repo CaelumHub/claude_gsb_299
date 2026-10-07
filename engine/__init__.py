@@ -28,6 +28,15 @@ from .report import ReportGenerator
 from .defects import DefectManager
 from .notify import NotificationManager
 from .scheduler import Scheduler
+from .contract_manager import ContractManager, ContractError
+from .contracts import (
+    CONTRACT_VIOLATED,
+    FIELD_TYPES,
+    CONFLICT_STRATEGIES,
+    extract_drafts,
+    validate_response,
+    diff_specs,
+)
 
 __all__ = [
     "PRIORITIES",
@@ -46,4 +55,12 @@ __all__ = [
     "DefectManager",
     "NotificationManager",
     "Scheduler",
+    "ContractManager",
+    "ContractError",
+    "CONTRACT_VIOLATED",
+    "FIELD_TYPES",
+    "CONFLICT_STRATEGIES",
+    "extract_drafts",
+    "validate_response",
+    "diff_specs",
 ]

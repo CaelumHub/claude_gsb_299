@@ -101,7 +101,7 @@ async function loadBuilds() {
   host.innerHTML = builds.map(b => `
     <div class="build-item ${b.id===currentBuild?'active':''}" onclick="selectBuild('${b.id}')">
       <div class="row spread"><strong>${esc(b.name||b.id)}</strong>${statusBadge(b.status)}</div>
-      <div class="muted" style="font-size:12px">通过 ${b.passed||0}/${b.total||0} · ${fmtDur(b.duration)} · ${fmtTime(b.finished_at)}</div>
+      <div class="muted" style="font-size:12px">通过 ${b.passed||0}/${b.total||0}${b.contract_violated?` · <span style="color:#9333ea">契约违背 ${b.contract_violated}</span>`:""} · ${fmtDur(b.duration)} · ${fmtTime(b.finished_at)}</div>
     </div>`).join("");
 }
 
@@ -120,11 +120,15 @@ function renderReport(r) {
   const prio = Object.entries(r.by_priority || {});
   const failures = r.failures || [];
   const slowest = r.slowest || [];
+  const contract = r.contract || {};
+  const contractRows = contract.contracts || [];
+  const contractViolations = r.contract_violations || [];
 
   $("#report-body").innerHTML = `
     <div class="grid cols-4 mt">
       <div class="stat primary"><div class="v">${s.total||0}</div><div class="k">总用例</div></div>
-      <div class="stat good"><div class="v">${s.pass_rate ?? 0}%</div><div class="k">通过率</div></div>
+      <div class="stat good"><div class="v">${s.pass_rate ?? 0}%</div><div class="k">用例通过率</div></div>
+      <div class="stat ${(s.contract_violated||0)?'bad':'good'}"><div class="v" style="${(s.contract_violated||0)?'color:#9333ea':''}">${s.contract_violated||0}</div><div class="k">契约违背</div></div>
       <div class="stat ${(s.failed||0)?'bad':'good'}"><div class="v">${(s.failed||0)+(s.error||0)+(s.timeout||0)}</div><div class="k">失败/错误/超时</div></div>
       <div class="stat primary"><div class="v">${fmtDur(r.duration)}</div><div class="k">总耗时</div></div>
     </div>
@@ -140,8 +144,9 @@ function renderReport(r) {
     </div>
 
     ${groups.length ? `<div class="mt"><h3>按分组</h3><table>
-      <thead><tr><th>分组</th><th>总数</th><th>通过</th><th>失败</th><th>通过率</th><th>耗时</th></tr></thead>
+      <thead><tr><th>分组</th><th>总数</th><th>通过</th><th>契约违背</th><th>失败</th><th>通过率</th><th>耗时</th></tr></thead>
       <tbody>${groups.map(([g,v]) => `<tr><td><span class="tag">${esc(g)}</span></td><td>${v.total}</td><td style="color:var(--green)">${v.passed}</td>
+        <td style="color:#9333ea">${v.contract_violated||0}</td>
         <td style="color:var(--red)">${(v.failed||0)+(v.error||0)+(v.timeout||0)}</td>
         <td>${v.total?Math.round(v.passed/v.total*100):0}%</td><td>${fmtDur(v.duration)}</td></tr>`).join("")}
       </tbody></table></div>` : ""}
@@ -150,6 +155,33 @@ function renderReport(r) {
       <thead><tr><th>优先级</th><th>总数</th><th>通过</th><th>失败</th></tr></thead>
       <tbody>${prio.map(([g,v]) => `<tr><td>${priorityBadge(g)}</td><td>${v.total}</td><td style="color:var(--green)">${v.passed}</td>
         <td style="color:var(--red)">${(v.failed||0)+(v.error||0)+(v.timeout||0)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+
+    ${contractRows.length ? `<div class="mt"><h3>接口契约校验</h3>
+      <div class="muted" style="font-size:12.5px;margin-bottom:6px">
+        ${contract.checked_cases||0} 条用例的响应参与契约校验 · ${contract.violated_cases||0} 条被判契约违背。
+        契约校验独立于用例断言：用例全过但接口不满足统一约定时，结果标为「契约违背」。</div>
+      <table><thead><tr><th>接口</th><th>版本</th><th>匹配</th><th>校验响应</th><th>违背用例</th><th>不符项</th></tr></thead>
+      <tbody>${contractRows.map(x => `<tr>
+        <td><a href="/page/contracts.html?project_id=${esc(r.project_id||'')}" target="_blank">
+          <span class="method ${x.method}" style="padding:1px 6px;border-radius:4px;font-size:11px">${esc(x.method)}</span>
+          ${esc(x.path)}</a><div class="muted" style="font-size:11px">${esc(x.contract_name||'')}</div></td>
+        <td>v${x.version}</td>
+        <td>${x.match==='explicit'?'<span class="tag">显式绑定</span>':'<span class="tag">隐式匹配</span>'}</td>
+        <td>${x.checked}</td>
+        <td>${x.violated ? `<strong style="color:#9333ea">${x.violated}</strong>` : '0'}</td>
+        <td>${x.violation_count}</td>
+      </tr>`).join("")}</tbody></table></div>` : ""}
+
+    ${contractViolations.length ? `<div class="mt"><h3>契约违背明细</h3><table>
+      <thead><tr><th>用例</th><th>接口</th><th>版本</th><th>不符类型</th><th>字段</th><th>说明</th></tr></thead>
+      <tbody>${contractViolations.map(f => `<tr>
+        <td>${esc(f.case_name||f.case_id)}</td>
+        <td><span class="muted mono" style="font-size:12px">${esc(f.method)} ${esc(f.path)}</span></td>
+        <td>v${f.version}</td>
+        <td><span class="badge contract_violated">${esc(f.kind)}</span></td>
+        <td><code>${esc(f.field)}</code></td>
+        <td class="muted" style="font-size:12.5px">${esc(f.message||"")}</td>
+      </tr>`).join("")}</tbody></table></div>` : ""}
 
     ${failures.length ? `<div class="mt"><h3>失败明细</h3><table>
       <thead><tr><th>用例</th><th>状态</th><th>原因</th><th>耗时</th></tr></thead>

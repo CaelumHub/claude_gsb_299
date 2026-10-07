@@ -13,7 +13,7 @@ import time
 from engine import new_id
 
 
-def seed_demo_data(registry, env_mgr, notify_mgr) -> dict:
+def seed_demo_data(registry, env_mgr, notify_mgr, contract_mgr=None) -> dict:
     """生成演示项目，返回 ``{"project": ..., "env_id": ..., "suite_id": ...}``。"""
     proj = {
         "id": new_id("proj"),
@@ -139,5 +139,63 @@ def seed_demo_data(registry, env_mgr, notify_mgr) -> dict:
         "config": {"address": "qa@example.com"},
         "events": ["build.failed"],
     })
+
+    # -- 接口契约 -------------------------------------------------------
+    # 演示「接口悄悄加了必填字段」的完整故事线：
+    # - GET  /api/health v1 -> v2：v2 新增必填字段 version（Mock 并不返回，
+    #   于是用例自身断言仍通过、却被契约校验判为 contract_violated）；
+    # - POST /api/login v1 -> v2：v2 新增必填 token，健康检查以外的登录用例
+    #   仍显式绑定 v1，构成「升级后仍按旧契约校验」的影响面。
+    if contract_mgr is not None:
+        ch = contract_mgr.create(pid, {
+            "name": "健康检查接口", "method": "GET", "path": "/api/health",
+            "spec": {
+                "status_codes": [200],
+                "request": [],
+                "response_fields": [
+                    {"path": "ok", "type": "boolean", "required": True,
+                     "enum": [True], "description": "服务是否正常"},
+                ],
+            },
+        })
+        contract_mgr.publish_version(ch["id"], note="初始契约", source="seed")
+        contract_mgr.publish_version(ch["id"], {
+            "status_codes": [200],
+            "request": [],
+            "response_fields": [
+                {"path": "ok", "type": "boolean", "required": True,
+                 "enum": [True], "description": "服务是否正常"},
+                {"path": "version", "type": "string", "required": True,
+                 "enum": [], "description": "服务版本号（v2 新增必填）"},
+            ],
+        }, note="新增必填字段 version", source="seed")
+
+        cl = contract_mgr.create(pid, {
+            "name": "登录接口", "method": "POST", "path": "/api/login",
+            "spec": {
+                "status_codes": [200],
+                "request": [],
+                "response_fields": [
+                    {"path": "ok", "type": "boolean", "required": True,
+                     "enum": [], "description": ""},
+                ],
+            },
+        })
+        contract_mgr.publish_version(cl["id"], note="初始契约", source="seed")
+        contract_mgr.publish_version(cl["id"], {
+            "status_codes": [200],
+            "request": [
+                {"name": "username", "in": "body", "type": "string",
+                 "required": True, "description": "用户名"},
+            ],
+            "response_fields": [
+                {"path": "ok", "type": "boolean", "required": True,
+                 "enum": [], "description": ""},
+                {"path": "token", "type": "string", "required": True,
+                 "enum": [], "description": "登录令牌（v2 新增必填）"},
+            ],
+        }, note="新增必填响应字段 token 与请求参数 username", source="seed")
+        # 登录用例仍固定按 v1 校验 -> 升级影响面里能看到它「落后一个版本」
+        contract_mgr.bind_cases(cl["id"], [c2], version=1)
 
     return {"project": proj, "env_id": env["id"], "suite_id": suite["id"]}

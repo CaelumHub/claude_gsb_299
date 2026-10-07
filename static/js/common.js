@@ -4,6 +4,7 @@
 
 const PAGES = [
   { file: "projects.html",    name: "项目管理",     desc: "项目总览" },
+  { file: "contracts.html",   name: "接口契约",     desc: "契约·版本·提炼" },
   { file: "cases.html",       name: "测试用例",     desc: "步骤与断言" },
   { file: "suites.html",      name: "套件与分组",   desc: "组织用例" },
   { file: "monitor.html",     name: "执行监控",     desc: "实时日志状态" },
@@ -16,7 +17,7 @@ const PAGES = [
 ];
 
 const PAGE_NAMES = {
-  projects: "项目管理", cases: "测试用例", suites: "测试套件与分组",
+  projects: "项目管理", contracts: "接口契约", cases: "测试用例", suites: "测试套件与分组",
   monitor: "执行监控", reports: "测试报告", coverage: "代码覆盖率",
   defects: "缺陷跟踪", environments: "环境管理", schedules: "定时任务与触发",
   notifications: "通知与集成",
@@ -25,6 +26,7 @@ const PAGE_NAMES = {
 const STATUS_LABELS = {
   pending: "等待中", running: "运行中", passed: "通过", failed: "失败",
   cancelled: "已取消", error: "错误", skipped: "跳过", timeout: "超时",
+  contract_violated: "契约违背",
 };
 
 const PRIORITY_LABELS = { P0: "P0 · 最高", P1: "P1 · 高", P2: "P2 · 中", P3: "P3 · 低" };

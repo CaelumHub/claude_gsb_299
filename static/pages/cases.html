@@ -77,6 +77,8 @@
           </label>
         </div>
 
+        <div class="mt" id="c-contracts"></div>
+
         <div class="mt">
           <label>步骤与断言</label>
           <div class="step-btns">
@@ -153,6 +155,7 @@ function resetEditor() {
   $("#c-tags").value = ""; $("#c-enabled").checked = true;
   $("#editor-title").textContent = "新建用例";
   $("#btn-delete").style.display = "none";
+  $("#c-contracts").innerHTML = "";
   renderSteps();
 }
 
@@ -167,9 +170,32 @@ async function loadCase(id) {
   $("#btn-delete").style.display = "inline-flex";
   steps = (c.steps || []).map(s => ({ ...s }));
   renderSteps();
+  renderContractRefs(c.contract_refs || []);
   $$(".case-item").forEach(el => el.classList.remove("active"));
   const idx = cases.findIndex(x => x.id === id);
   if (idx >= 0) $$(".case-item")[idx].classList.add("active");
+}
+
+// ---------- 契约绑定信息 ----------
+async function renderContractRefs(refs) {
+  const host = $("#c-contracts");
+  if (!refs.length) {
+    host.innerHTML = `<label>接口契约</label>
+      <div class="muted" style="font-size:12.5px">未显式绑定契约；执行时会按请求的 method+path 隐式匹配当前生效版本。
+        可在 <a href="/page/contracts.html?project_id=${projectId||""}" target="_blank">接口契约</a> 页固定版本。</div>`;
+    return;
+  }
+  const all = projectId ? await api(`/api/projects/${projectId}/contracts`).catch(()=>({contracts:[]})) : {contracts:[]};
+  host.innerHTML = `<label>接口契约绑定（${refs.length}）</label>` +
+    refs.map(r => {
+      const c = (all.contracts||[]).find(x => x.id === r.contract_id);
+      const stale = c && c.current_version !== r.version;
+      return `<div class="row" style="font-size:13px;margin-top:4px">
+        <span class="badge ${stale?'contract_violated':'blue'}">v${r.version}${stale?' · 落后于 v'+c.current_version:''}</span>
+        <span class="mono muted">${esc(r.method)} ${esc(r.path)}</span>
+        ${c?`<a href="/page/contracts.html" target="_blank">${esc(c.name||"")}</a>`:"<span class='muted'>契约已删除</span>"}
+      </div>`;
+    }).join("");
 }
 
 // ---------- 步骤编辑 ----------
@@ -321,7 +347,12 @@ $("#btn-run").onclick = async () => {
     // 单条试跑：直接提交一个临时用例
     const r = await api(`/api/projects/${projectId}/cases`, { method: "POST", body });
     const res = await api(`/api/cases/${r.id}/run`, { method: "POST", body: {} });
-    $("#run-out").textContent = JSON.stringify(res, null, 2);
+    const cv = (res.contract_checks || []).filter(x => !x.ok);
+    $("#run-out").textContent = JSON.stringify(res, null, 2) +
+      (res.status === "contract_violated"
+        ? "\n\n⚠️ 契约违背（用例断言已通过，但接口响应不满足统一契约）：\n" +
+          cv.flatMap(x => (x.violations||[]).map(v => `  [${x.method} ${x.path}@v${x.version}] ${v.message}`)).join("\n")
+        : "");
     await api(`/api/cases/${r.id}`, { method: "DELETE" });
     loadCases();
   } catch (e) {

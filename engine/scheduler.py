@@ -26,6 +26,7 @@ from typing import Optional
 
 from .cron import cron_matches, parse_cron
 from .models import new_id
+from .contracts import CONTRACT_VIOLATED, validate_response as validate_contract_response
 
 
 class Scheduler:
@@ -33,6 +34,7 @@ class Scheduler:
 
     def __init__(self, registry, build_registry, executor, env_manager,
                  report_gen, coverage_analyzer, defect_manager, notify_manager,
+                 contract_manager=None,
                  max_build_workers: int = 4, max_case_workers: int = 8,
                  tick_seconds: float = 20.0):
         self.registry = registry
@@ -43,6 +45,7 @@ class Scheduler:
         self.coverage = coverage_analyzer
         self.defects = defect_manager
         self.notify = notify_manager
+        self.contracts = contract_manager
 
         self.max_build_workers = max_build_workers
         self.max_case_workers = max_case_workers
@@ -204,7 +207,8 @@ class Scheduler:
         build = store.get(build_id)
         if cancel_event.is_set():
             status = "cancelled"
-        elif (build.get("failed", 0) + build.get("error", 0) + build.get("timeout", 0)) == 0:
+        elif (build.get("failed", 0) + build.get("error", 0) + build.get("timeout", 0)
+              + build.get("contract_violated", 0)) == 0:
             status = "passed"
         else:
             status = "failed"
@@ -225,7 +229,75 @@ class Scheduler:
             timeout=case.get("timeout", 60))
         result["env_id"] = env_id
         result["order"] = index
+        # 用例断言跑完后，再对照接口契约独立校验响应。契约校验不改变步骤
+        # 结果，只追加 contract_checks；只有「用例自身全过、但响应违背契约」
+        # 时才把整体状态改判为 contract_violated。
+        self._check_contracts(case, result)
         return result
+
+    def _check_contracts(self, case: dict, result: dict) -> None:
+        if self.contracts is None:
+            return
+        try:
+            resolved = self.contracts.resolve_for_case(case)
+        except Exception:  # noqa: BLE001 契约服务异常不影响执行主流程
+            return
+        if not resolved:
+            return
+
+        # 同一路径可能请求多次（不同步骤），按 method+path 归组，逐次响应校验
+        snapshots: dict[tuple, list] = {}
+        for snap in result.get("response_snapshots", []):
+            key = (snap.get("method"), snap.get("path"))
+            snapshots.setdefault(key, []).append(snap)
+
+        checks: list[dict] = []
+        violated = False
+        for ref in resolved:
+            spec = ref["spec"]
+            # path 归一化口径需与快照一致（快照是 split('?')[0]，未 rstrip）
+            matches = snapshots.get((ref["method"], ref["path"]))
+            if not matches:
+                norm = ref["path"].rstrip("/") or "/"
+                matches = next((snaps for (m, p), snaps in snapshots.items()
+                                if m == ref["method"]
+                                and (p.rstrip("/") or "/") == norm), [])
+            ref_violations, checked_responses = [], 0
+            for snap in matches:
+                verdict = validate_contract_response(
+                    spec, snap.get("status"), snap.get("body"))
+                checked_responses += 1
+                if not verdict["ok"]:
+                    ref_violations.extend(verdict["violations"])
+                # 在快照上回填版本，历史重判据此区分新旧版本
+                snap["contract_id"] = ref["contract_id"]
+                snap["version"] = ref["version"]
+            check = {
+                "contract_id": ref["contract_id"],
+                "contract_name": ref["name"],
+                "method": ref["method"],
+                "path": ref["path"],
+                "version": ref["version"],
+                "match": ref["match"],
+                "ok": not ref_violations,
+                "violations": ref_violations,
+                "checked_responses": checked_responses,
+            }
+            checks.append(check)
+            violated = violated or bool(ref_violations)
+
+        result["contract_checks"] = checks
+        # 用例断言通过但契约违背 -> 独立的新检查结果；用例本身已失败的保留
+        # 原状态（失败原因优先是它自己的断言），契约明细照样附上。
+        if violated and result.get("status") == "passed":
+            result["status"] = CONTRACT_VIOLATED
+            names = "; ".join(
+                f"{c['method']} {c['path']}@v{c['version']}"
+                for c in checks if not c["ok"])
+            result["message"] = f"接口响应违背契约: {names}"
+            result.setdefault("logs", []).append(
+                f"  [契约违背] {names}，共 "
+                f"{sum(len(c['violations']) for c in checks if not c['ok'])} 处不符")
 
     def _persist_result(self, store, build_id: str, case: dict, result: dict) -> None:
         store.record_result(build_id, result)
@@ -269,7 +341,9 @@ class Scheduler:
         # 自动缺陷（项目配置开启时，把失败用例转成缺陷）
         project = self.registry.store("projects").get(project_id)
         if project and project.get("auto_create_defects"):
-            failures = store.results(build_id, where=[("status", "in", ["failed", "error", "timeout"])])
+            # 契约违背是接口方违背统一约定，同样自动建缺陷（单独标题区分）
+            failures = store.results(build_id, where=[("status", "in", [
+                "failed", "error", "timeout", "contract_violated"])])
             for fr in failures[:20]:
                 self.defects.create_from_case(project_id, fr, build_id)
 

@@ -57,6 +57,10 @@ def _notify():
     return current_app.config["NOTIFY"]
 
 
+def _contracts():
+    return current_app.config["CONTRACTS"]
+
+
 def _payload() -> dict:
     return request.get_json(silent=True) or {}
 
@@ -236,7 +240,7 @@ def delete_case(case_id: str):
 
 @api.post("/cases/<case_id>/run")
 def run_single_case(case_id: str):
-    """单条用例试跑（同步执行，立即返回结果）。"""
+    """单条用例试跑（同步执行，立即返回结果），同样执行契约校验。"""
     case = _store("cases").get(case_id)
     if case is None:
         return _err("用例不存在", 404)
@@ -244,6 +248,10 @@ def run_single_case(case_id: str):
     env_config = _env_mgr().to_executor_config(data.get("env_id")) if data.get("env_id") else {}
     result = TestExecutor().execute_case(case, env_config,
                                          timeout=case.get("timeout", 60))
+    try:
+        _scheduler()._check_contracts(case, result)
+    except Exception:  # noqa: BLE001
+        pass
     return jsonify(result)
 
 
@@ -689,6 +697,264 @@ def list_events(project_id: str):
 
 
 # ---------------------------------------------------------------------------
+# 接口契约
+# ---------------------------------------------------------------------------
+
+def _contract_or_err(contract_id: str):
+    contract = _contracts().get(contract_id)
+    if contract is None:
+        return None, _err("契约不存在", 404)
+    return contract, None
+
+
+@api.get("/projects/<project_id>/contracts")
+def list_contracts(project_id):
+    return jsonify({"contracts": _contracts().list_for_project(project_id)})
+
+
+@api.post("/projects/<project_id>/contracts")
+def create_contract(project_id):
+    data = _payload()
+    try:
+        contract = _contracts().create(project_id, data)
+    except Exception as exc:  # ContractError
+        return _err(str(exc))
+    return jsonify(contract)
+
+
+@api.get("/contracts/<contract_id>")
+def get_contract(contract_id):
+    contract, err = _contract_or_err(contract_id)
+    if err:
+        return err
+    return jsonify(contract)
+
+
+@api.put("/contracts/<contract_id>")
+def update_contract(contract_id):
+    try:
+        contract = _contracts().update_meta(contract_id, _payload())
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(contract)
+
+
+@api.delete("/contracts/<contract_id>")
+def delete_contract(contract_id):
+    _contracts().delete(contract_id)
+    return jsonify({"ok": True})
+
+
+# -- 自动提炼草稿 ---------------------------------------------------------
+
+@api.get("/projects/<project_id>/contracts/drafts")
+def preview_contract_drafts(project_id):
+    """从用例断言提炼契约草稿（仅预览，不落库），矛盾按策略取舍。"""
+    strategy = request.args.get("strategy", "majority")
+    case_ids = request.args.getlist("case_id") or None
+    drafts = _contracts().generate_drafts(project_id, case_ids=case_ids,
+                                          strategy=strategy)
+    return jsonify({"drafts": drafts})
+
+
+@api.post("/projects/<project_id>/contracts/drafts")
+def accept_contract_drafts(project_id):
+    """确认提炼结果：按 method+path 建契约（已存在则更新草稿），可直接发布。"""
+    data = _payload()
+    drafts = data.get("drafts")
+    if drafts is None:
+        # 未给草稿：现场提炼
+        drafts = _contracts().generate_drafts(
+            project_id, strategy=data.get("strategy", "majority"))
+    selected = {d.get("path") for d in (data.get("selected_paths") or [])}
+    publish = bool(data.get("publish"))
+    created, updated, skipped = [], [], []
+    for d in drafts:
+        if selected and d.get("path") not in selected:
+            continue
+        existing = _contracts()._find_by_endpoint(project_id, d["method"], d["path"])
+        try:
+            if existing is None:
+                c = _contracts().create(project_id, {
+                    "name": d.get("name"), "method": d["method"],
+                    "path": d["path"], "spec": d.get("spec"),
+                    "publish": publish,
+                })
+                if not publish:
+                    _contracts().save_draft(c["id"], d["spec"])
+                    draft = dict(c.get("draft") or {})
+                    draft["conflicts"] = d.get("conflicts", [])
+                    draft["source_case_ids"] = d.get("source_case_ids", [])
+                    draft["generated_at"] = time.time()
+                    _store("contracts").update(c["id"], {"draft": draft})
+                    c = _contracts().get(c["id"])
+                created.append(c)
+            else:
+                _contracts().save_draft(existing["id"], d["spec"])
+                draft = dict(existing.get("draft") or {})
+                draft["conflicts"] = d.get("conflicts", [])
+                draft["source_case_ids"] = d.get("source_case_ids", [])
+                draft["generated_at"] = time.time()
+                _store("contracts").update(existing["id"], {"draft": draft})
+                if publish:
+                    _contracts().publish_draft(
+                        existing["id"],
+                        note=data.get("note", "从用例断言提炼并发布"),
+                        source="extracted")
+                updated.append(_contracts().get(existing["id"]))
+        except Exception as exc:  # noqa: BLE001
+            skipped.append({"path": d.get("path"), "error": str(exc)})
+    return jsonify({"created": created, "updated": updated, "skipped": skipped})
+
+
+@api.post("/contracts/<contract_id>/extract")
+def extract_contract_draft(contract_id):
+    _, err = _contract_or_err(contract_id)
+    if err:
+        return err
+    data = _payload()
+    try:
+        draft = _contracts().extract_to_draft(
+            contract_id, strategy=data.get("strategy", "majority"),
+            case_ids=data.get("case_ids"))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(draft)
+
+
+@api.put("/contracts/<contract_id>/draft")
+def save_contract_draft(contract_id):
+    _, err = _contract_or_err(contract_id)
+    if err:
+        return err
+    try:
+        draft = _contracts().save_draft(contract_id, _payload().get("spec") or {})
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(draft)
+
+
+@api.post("/contracts/<contract_id>/publish")
+def publish_contract(contract_id):
+    """发布新版本：body 可带 spec（直接发布）或不带（发布当前草稿）。"""
+    _, err = _contract_or_err(contract_id)
+    if err:
+        return err
+    data = _payload()
+    try:
+        if data.get("spec") is not None:
+            version = _contracts().publish_version(
+                contract_id, spec=data["spec"], note=data.get("note", ""),
+                source=data.get("source", "manual"))
+        else:
+            version = _contracts().publish_draft(
+                contract_id, note=data.get("note", ""),
+                source=data.get("source", "draft"))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(version)
+
+
+# -- 版本 / 差异 ----------------------------------------------------------
+
+@api.get("/contracts/<contract_id>/versions")
+def list_contract_versions(contract_id):
+    try:
+        versions = _contracts().list_versions(contract_id)
+    except Exception as exc:
+        return _err(str(exc), 404)
+    contract = _contracts().get(contract_id)
+    return jsonify({"current_version": contract.get("current_version"),
+                    "versions": versions})
+
+
+@api.post("/contracts/<contract_id>/versions/<int:version_no>/activate")
+def activate_contract_version(contract_id, version_no):
+    try:
+        contract = _contracts().activate_version(contract_id, version_no)
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(contract)
+
+
+@api.get("/contracts/<contract_id>/diff")
+def contract_version_diff(contract_id):
+    try:
+        diff = _contracts().version_diff(
+            contract_id,
+            request.args.get("from", type=int),
+            request.args.get("to", type=int))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(diff)
+
+
+# -- 用例绑定 -------------------------------------------------------------
+
+@api.get("/contracts/<contract_id>/cases")
+def list_contract_cases(contract_id):
+    return jsonify({"cases": _contracts().list_bound_cases(contract_id)})
+
+
+@api.post("/contracts/<contract_id>/bind")
+def bind_contract_cases(contract_id):
+    data = _payload()
+    try:
+        result = _contracts().bind_cases(
+            contract_id, data.get("case_ids") or [],
+            version=data.get("version"))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(result)
+
+
+@api.post("/contracts/<contract_id>/unbind")
+def unbind_contract_cases(contract_id):
+    data = _payload()
+    return jsonify(_contracts().unbind_cases(contract_id, data.get("case_ids") or []))
+
+
+# -- 影响分析 / 历史重判 / 即时试判 ----------------------------------------
+
+@api.get("/contracts/<contract_id>/impact")
+def contract_impact(contract_id):
+    try:
+        impact = _contracts().impact(
+            contract_id, request.args.get("version", type=int))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(impact)
+
+
+@api.post("/builds/<build_id>/recheck-contracts")
+def recheck_build_contracts(build_id):
+    """用当前契约新版本重判历史构建，输出新旧契约下的判定差异。"""
+    build, err = _build_or_404(build_id)
+    if err:
+        return err
+    data = _payload()
+    try:
+        result = _contracts().recheck_build(build_id,
+                                            contract_id=data.get("contract_id"))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(result)
+
+
+@api.post("/contracts/<contract_id>/validate")
+def validate_against_contract(contract_id):
+    """给一份 status/body，按契约（指定版本或当前版本）即时试判。"""
+    data = _payload()
+    try:
+        result = _contracts().recheck_response(
+            contract_id, data.get("status"), data.get("body"),
+            version_no=data.get("version"))
+    except Exception as exc:
+        return _err(str(exc))
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
 # 演示数据
 # ---------------------------------------------------------------------------
 
@@ -696,4 +962,5 @@ def list_events(project_id: str):
 def seed_demo():
     """一键生成演示项目（含用例 / 套件 / 环境 / 计划 / 集成）。"""
     from .seed import seed_demo_data
-    return jsonify(seed_demo_data(_registry(), _env_mgr(), _notify()))
+    return jsonify(seed_demo_data(_registry(), _env_mgr(), _notify(),
+                                  _contracts()))

@@ -21,6 +21,8 @@ import time
 from typing import Optional
 
 FAILED_STATUSES = ("failed", "error", "timeout")
+# 契约违背单独成类：既不是用例断言失败，也不是执行错误
+CONTRACT_STATUS = "contract_violated"
 
 
 def _percentile(values: list[float], p: float) -> float:
@@ -64,7 +66,9 @@ class ReportGenerator:
         error = build.get("error", 0)
         skipped = build.get("skipped", 0)
         timeout = build.get("timeout", 0)
+        contract_violated = build.get("contract_violated", 0)
         finished = total - skipped
+        # 通过率只统计用例自身断言；契约违背单列，避免两种失败口径混淆
         pass_rate = round(passed / finished * 100, 1) if finished else 0.0
 
         durations = build.get("durations", [])
@@ -86,8 +90,10 @@ class ReportGenerator:
                 "error": error,
                 "skipped": skipped,
                 "timeout": timeout,
+                "contract_violated": contract_violated,
                 "pass_rate": pass_rate,
             },
+            "contract": self._contract_summary(store, build_id),
             "durations": {
                 "avg": round(statistics.mean(durations), 3) if durations else 0.0,
                 "median": round(statistics.median(durations), 3) if durations else 0.0,
@@ -100,9 +106,69 @@ class ReportGenerator:
             "by_priority": build.get("by_priority", {}),
             "slowest": self._slowest(store, build_id, 10),
             "failures": self._failures(store, build_id, 50),
+            "contract_violations": self._contract_violations(store, build_id, 50),
             "generated_at": time.time(),
         }
         return report
+
+    def _contract_summary(self, store, build_id: str) -> dict:
+        """聚合本构建的契约校验情况：按契约版本统计违背数。"""
+        records = store.results(build_id)
+        by_contract: dict[str, dict] = {}
+        checked_cases = 0
+        for r in records:
+            checks = r.get("contract_checks") or []
+            if checks:
+                checked_cases += 1
+            for chk in checks:
+                cid = chk.get("contract_id")
+                agg = by_contract.setdefault(cid, {
+                    "contract_id": cid,
+                    "contract_name": chk.get("contract_name"),
+                    "method": chk.get("method"),
+                    "path": chk.get("path"),
+                    "version": chk.get("version"),
+                    "match": chk.get("match"),
+                    "checked": 0, "violated": 0, "violation_count": 0,
+                })
+                agg["checked"] += 1
+                if not chk.get("ok"):
+                    agg["violated"] += 1
+                    agg["violation_count"] += len(chk.get("violations") or [])
+        return {
+            "checked_cases": checked_cases,
+            "violated_cases": sum(1 for r in records
+                                  if r.get("status") == CONTRACT_STATUS),
+            "contracts": sorted(by_contract.values(),
+                                key=lambda a: -a["violation_count"]),
+        }
+
+    def _contract_violations(self, store, build_id: str, top: int) -> list[dict]:
+        records = store.results(build_id,
+                                where=[("status", "eq", CONTRACT_STATUS)],
+                                limit=top)
+        out = []
+        for r in records:
+            for chk in r.get("contract_checks") or []:
+                if chk.get("ok"):
+                    continue
+                for v in chk.get("violations") or []:
+                    out.append({
+                        "case_id": r.get("case_id"),
+                        "case_name": r.get("case_name"),
+                        "group": r.get("group"),
+                        "priority": r.get("priority"),
+                        "contract_name": chk.get("contract_name"),
+                        "method": chk.get("method"),
+                        "path": chk.get("path"),
+                        "version": chk.get("version"),
+                        "kind": v.get("kind"),
+                        "field": v.get("field"),
+                        "expected": v.get("expected"),
+                        "actual": v.get("actual"),
+                        "message": v.get("message"),
+                    })
+        return out[:top]
 
     def _slowest(self, store, build_id: str, top: int) -> list[dict]:
         records = store.results(build_id, order_by="duration", order="desc",
@@ -112,10 +178,27 @@ class ReportGenerator:
                  "group": r.get("group")} for r in records]
 
     def _failures(self, store, build_id: str, top: int) -> list[dict]:
-        records = store.results(build_id, where=[("status", "in", list(FAILED_STATUSES))],
+        records = store.results(build_id,
+                                where=[("status", "in",
+                                        list(FAILED_STATUSES) + [CONTRACT_STATUS])],
                                 limit=top)
         out = []
         for r in records:
+            if r.get("status") == CONTRACT_STATUS:
+                checks = r.get("contract_checks") or []
+                reason = "; ".join(v.get("message", "")
+                                   for c in checks if not c.get("ok")
+                                   for v in c.get("violations") or [])
+                out.append({
+                    "case_id": r.get("case_id"),
+                    "case_name": r.get("case_name"),
+                    "status": r.get("status"),
+                    "group": r.get("group"),
+                    "priority": r.get("priority"),
+                    "duration": r.get("duration"),
+                    "reason": reason or r.get("message") or "接口响应违背契约",
+                })
+                continue
             failing_step = next((s for s in r.get("steps", [])
                                  if s.get("status") in ("failed", "error")), None)
             failing_assert = next((a for a in r.get("assertions", [])
@@ -146,7 +229,8 @@ class ReportGenerator:
                 "trigger": b.get("trigger"),
                 "total": b.get("total", 0),
                 "passed": b.get("passed", 0),
-                "failed": b.get("failed", 0) + b.get("error", 0) + b.get("timeout", 0),
+                "failed": b.get("failed", 0) + b.get("error", 0)
+                + b.get("timeout", 0) + b.get("contract_violated", 0),
                 "pass_rate": round(b.get("passed", 0) / finished * 100, 1) if finished else 0,
                 "duration": b.get("duration", 0.0),
                 "finished_at": b.get("finished_at"),

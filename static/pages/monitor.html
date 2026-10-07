@@ -89,7 +89,7 @@ async function loadBuilds() {
   const host = $("#build-list");
   if (!list.length) { host.innerHTML = '<div class="empty">暂无构建，到「套件」页触发一次执行。</div>'; return; }
   host.innerHTML = list.map(b => {
-    const total = b.total || 0, done = (b.passed||0)+(b.failed||0)+(b.error||0)+(b.timeout||0)+(b.skipped||0);
+    const total = b.total || 0, done = (b.passed||0)+(b.failed||0)+(b.error||0)+(b.timeout||0)+(b.skipped||0)+(b.contract_violated||0);
     const ratio = total ? done/total : 0;
     return `<div class="build-item ${b.id===currentBuild?'active':''}" onclick="selectBuild('${b.id}')">
       <div class="row spread">
@@ -97,7 +97,7 @@ async function loadBuilds() {
         <span class="muted mono" style="font-size:12px">${fmtTime(b.created_at)}</span>
       </div>
       <div class="mt" style="font-size:12px;color:var(--text-muted)">通过 ${b.passed||0} / 共 ${total}
-        · 失败 ${(b.failed||0)+(b.error||0)} · 耗时 ${fmtDur(b.duration)}</div>
+        · 失败 ${(b.failed||0)+(b.error||0)}${b.contract_violated?` · <span style="color:#9333ea">契约违背 ${b.contract_violated}</span>`:""} · 耗时 ${fmtDur(b.duration)}</div>
       ${progressBar(ratio, b.status==='passed'?'green':(b.status==='failed'?'red':''))}
     </div>`;
   }).join("");
@@ -121,10 +121,10 @@ async function poll() {
   try {
     const b = await api(`/api/builds/${currentBuild}`);
     $("#live-title").textContent = b.name || b.id;
-    const total = b.total || 0, done = (b.passed||0)+(b.failed||0)+(b.error||0)+(b.timeout||0)+(b.skipped||0);
+    const total = b.total || 0, done = (b.passed||0)+(b.failed||0)+(b.error||0)+(b.timeout||0)+(b.skipped||0)+(b.contract_violated||0);
     $("#live-meta").innerHTML = `
       <div class="row mt">${statusBadge(b.status)}
-        <span class="muted" style="font-size:13px">通过 <strong>${b.passed||0}</strong> / 失败 <strong style="color:var(--red)">${(b.failed||0)+(b.error||0)+(b.timeout||0)}</strong> / 共 ${total}</span>
+        <span class="muted" style="font-size:13px">通过 <strong>${b.passed||0}</strong> / 失败 <strong style="color:var(--red)">${(b.failed||0)+(b.error||0)+(b.timeout||0)}</strong> / <span style="color:#9333ea">契约违背 ${b.contract_violated||0}</span> / 共 ${total}</span>
         <span class="muted mono" style="font-size:12px">触发: ${esc(b.trigger||'manual')} · ${fmtTime(b.started_at)}</span>
       </div>
       ${progressBar(total ? done/total : 0, b.status==='passed'?'green':(b.status==='failed'||b.status==='error'?'red':''))}`;

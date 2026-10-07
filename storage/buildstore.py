@@ -66,6 +66,7 @@ def _empty_build(build_id: str, project_id: str, **kw: Any) -> dict:
         "error": 0,
         "skipped": 0,
         "timeout": 0,
+        "contract_violated": 0,
         "started_at": None,
         "finished_at": None,
         "duration": 0.0,
@@ -193,7 +194,8 @@ class BuildStore:
 
             # 1) 更新聚合计数
             status = result.get("status", "error")
-            if status in ("passed", "failed", "error", "skipped", "timeout"):
+            if status in ("passed", "failed", "error", "skipped", "timeout",
+                          "contract_violated"):
                 build[status] = build.get(status, 0) + 1
             build["durations"] = build.get("durations", []) + [result.get("duration", 0.0)]
 
@@ -201,7 +203,7 @@ class BuildStore:
             gp = build.setdefault("by_group", {})
             entry = gp.setdefault(group, {"total": 0, "passed": 0, "failed": 0,
                                           "error": 0, "skipped": 0, "timeout": 0,
-                                          "duration": 0.0})
+                                          "contract_violated": 0, "duration": 0.0})
             entry["total"] += 1
             entry[status if status in entry else "error"] += 1
             entry["duration"] = round(entry["duration"] + result.get("duration", 0.0), 3)
@@ -209,7 +211,8 @@ class BuildStore:
             priority = result.get("priority") or "P3"
             pp = build.setdefault("by_priority", {})
             pe = pp.setdefault(priority, {"total": 0, "passed": 0, "failed": 0,
-                                          "error": 0, "skipped": 0, "timeout": 0})
+                                          "error": 0, "skipped": 0, "timeout": 0,
+                                          "contract_violated": 0})
             pe["total"] += 1
             pe[status if status in pe else "error"] += 1
 
