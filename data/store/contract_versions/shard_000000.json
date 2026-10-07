@@ -1,0 +1,105 @@
+[
+  {
+    "id": "ctrv_1791345590862_1df0a3",
+    "contract_id": "ctr_1791345590860_d622ed",
+    "project_id": "proj_1791345590827_4e9791",
+    "version": 1,
+    "spec": {
+      "request": {
+        "params": []
+      },
+      "response": {
+        "status_codes": [
+          200
+        ],
+        "fields": [
+          {
+            "path": "echo",
+            "type": "object",
+            "required": true
+          },
+          {
+            "path": "echo.method",
+            "type": "string",
+            "required": true
+          },
+          {
+            "path": "echo.params",
+            "type": "object",
+            "required": false
+          },
+          {
+            "path": "echo.url",
+            "type": "string",
+            "required": true
+          },
+          {
+            "path": "ok",
+            "type": "boolean",
+            "required": true
+          }
+        ]
+      }
+    },
+    "source": "manual",
+    "change_summary": "初始版本",
+    "created_at": 1791345590.8622506
+  },
+  {
+    "id": "ctrv_1791345590867_ae10f8",
+    "contract_id": "ctr_1791345590865_f3b04b",
+    "project_id": "proj_1791345590827_4e9791",
+    "version": 1,
+    "spec": {
+      "request": {
+        "params": []
+      },
+      "response": {
+        "status_codes": [
+          200
+        ],
+        "fields": [
+          {
+            "path": "ok",
+            "type": "boolean",
+            "required": true
+          }
+        ]
+      }
+    },
+    "source": "manual",
+    "change_summary": "初始版本",
+    "created_at": 1791345590.8670444
+  },
+  {
+    "id": "ctrv_1791345590872_baaf24",
+    "contract_id": "ctr_1791345590870_b98990",
+    "project_id": "proj_1791345590827_4e9791",
+    "version": 1,
+    "spec": {
+      "request": {
+        "params": []
+      },
+      "response": {
+        "status_codes": [
+          200
+        ],
+        "fields": [
+          {
+            "path": "ok",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "path": "users",
+            "type": "array",
+            "required": true
+          }
+        ]
+      }
+    },
+    "source": "manual",
+    "change_summary": "初始版本（服务端尚未返回 users 字段，用于演示契约违背）",
+    "created_at": 1791345590.8721035
+  }
+]

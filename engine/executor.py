@@ -26,6 +26,7 @@ import time
 from typing import Any, Optional
 
 from .models import new_id
+from .contracts import snapshot_response, validate_against_spec
 
 
 class ExecutionError(Exception):
@@ -275,8 +276,49 @@ class TestExecutor:
         self.target = MockTarget({})
 
     # -- 单步骤执行 -------------------------------------------------------
+    @staticmethod
+    def _check_contracts(contracts: list, method: str, url: str,
+                         params: dict, resp: dict, step_index: int) -> list:
+        """请求完成后对照生效契约校验响应，返回契约检查结果列表。
+
+        「契约违背」不改写用例状态——它是独立于断言的检查结果，随用例结果
+        进入报告（见 ``contract_checks`` 字段），由报告聚合呈现。
+        """
+        checks = []
+        if not contracts:
+            return checks
+        path = str(url).split("?")[0].split("#")[0]
+        if "://" in path:
+            path = "/" + path.split("://", 1)[1].split("/", 1)[-1]
+        for contract in contracts:
+            if contract.get("method") != str(method).upper():
+                continue
+            if contract.get("path") != path:
+                continue
+            violations = validate_against_spec(
+                contract.get("spec") or {},
+                params=params or {},
+                response_status=resp.get("status"),
+                response_body=resp.get("body"))
+            checks.append({
+                "contract_id": contract.get("contract_id"),
+                "contract_name": contract.get("name"),
+                "version": contract.get("version"),
+                "method": contract.get("method"),
+                "path": contract.get("path"),
+                "step_index": step_index,
+                "ok": not violations,
+                "violations": violations,
+                # 留存响应快照，契约升级后可重新校验做新旧判定对比
+                "response_snapshot": {
+                    "status": resp.get("status"),
+                    "body": snapshot_response(resp.get("body")),
+                },
+            })
+        return checks
+
     def _run_step(self, step: dict, variables: dict, case_id: str, idx: int,
-                  cancel_event=None) -> dict:
+                  cancel_event=None, contracts: list = None) -> dict:
         action = step.get("action", "assert")
         name = step.get("name") or action
         started = time.time()
@@ -293,14 +335,19 @@ class TestExecutor:
             if action == "request":
                 method = step.get("method", "GET")
                 url = resolve_expr(step.get("url", "/"), variables)
+                params = resolve_expr(step.get("params"), variables) or {}
                 resp = self.target.request(
                     case_id, idx, method, str(url),
-                    params=resolve_expr(step.get("params"), variables) or {},
+                    params=params,
                     headers=resolve_expr(step.get("headers"), variables) or {},
                     body=resolve_expr(step.get("body"), variables),
                 )
                 save_as = step.get("save_as") or "resp"
                 variables[save_as] = resp
+                checks = self._check_contracts(contracts or [], method,
+                                               str(url), params, resp, idx)
+                if checks:
+                    variables.setdefault("_contract_checks", []).extend(checks)
                 return _done("passed", f"{method} {url} -> {resp['status']} ({resp['latency_ms']}ms)")
 
             if action == "set":
@@ -357,8 +404,14 @@ class TestExecutor:
 
     # -- 用例执行 ---------------------------------------------------------
     def execute_case(self, case: dict, env_config: dict = None,
-                     cancel_event=None, timeout: float = None) -> dict:
-        """执行一个用例，返回结构化的执行结果。"""
+                     cancel_event=None, timeout: float = None,
+                     contracts: list = None) -> dict:
+        """执行一个用例，返回结构化的执行结果。
+
+        ``contracts`` 为项目当前生效的契约列表（见
+        :meth:`engine.contracts.ContractManager.active_specs`），请求步骤的
+        响应会对照校验，结果记入返回值的 ``contract_checks``。
+        """
         env_config = env_config or {}
         case_id = case.get("id", new_id("case"))
         case_name = case.get("name", "未命名用例")
@@ -378,8 +431,8 @@ class TestExecutor:
         status = "passed"
 
         if not case.get("enabled", True):
-            return self._finalize(case, "skipped", steps_out, [], logs, started,
-                                  "用例已禁用")
+            return self._finalize(case, "skipped", steps_out, [], [], logs,
+                                  started, "用例已禁用")
 
         steps = case.get("steps") or []
         for idx, step in enumerate(steps):
@@ -392,7 +445,8 @@ class TestExecutor:
                 logs.append(f"用例超时（>{timeout}s），在第 {idx} 步停止")
                 break
 
-            step_result = self._run_step(step, variables, case_id, idx, cancel_event)
+            step_result = self._run_step(step, variables, case_id, idx,
+                                         cancel_event, contracts)
             steps_out.append(step_result)
             logs.append(f"  步骤 {idx + 1}/{len(steps)} [{step_result['status']}] "
                         f"{step_result['name']}: {step_result['message']}")
@@ -410,10 +464,16 @@ class TestExecutor:
             logs.append(f"用例总耗时超过 {timeout}s")
 
         assertions = variables.get("_assertions", [])
-        return self._finalize(case, status, steps_out, assertions, logs, started)
+        contract_checks = variables.get("_contract_checks", [])
+        violated = sum(1 for c in contract_checks if not c.get("ok"))
+        if violated:
+            logs.append(f"契约校验：{violated}/{len(contract_checks)} 项检查结果违背契约")
+        return self._finalize(case, status, steps_out, assertions,
+                              contract_checks, logs, started)
 
     def _finalize(self, case: dict, status: str, steps: list, assertions: list,
-                  logs: list, started: float, message: str = "") -> dict:
+                  contract_checks: list, logs: list, started: float,
+                  message: str = "") -> dict:
         return {
             "case_id": case.get("id"),
             "case_name": case.get("name", "未命名用例"),
@@ -423,6 +483,7 @@ class TestExecutor:
             "duration": round(time.time() - started, 3),
             "steps": steps,
             "assertions": assertions,
+            "contract_checks": contract_checks,
             "logs": logs,
             "message": message,
         }

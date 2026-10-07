@@ -6,6 +6,7 @@ const PAGES = [
   { file: "projects.html",    name: "项目管理",     desc: "项目总览" },
   { file: "cases.html",       name: "测试用例",     desc: "步骤与断言" },
   { file: "suites.html",      name: "套件与分组",   desc: "组织用例" },
+  { file: "contracts.html",   name: "接口契约",     desc: "契约版本与校验" },
   { file: "monitor.html",     name: "执行监控",     desc: "实时日志状态" },
   { file: "reports.html",     name: "测试报告",     desc: "通过率耗时" },
   { file: "coverage.html",    name: "代码覆盖率",   desc: "覆盖率分析" },
@@ -17,6 +18,7 @@ const PAGES = [
 
 const PAGE_NAMES = {
   projects: "项目管理", cases: "测试用例", suites: "测试套件与分组",
+  contracts: "接口契约",
   monitor: "执行监控", reports: "测试报告", coverage: "代码覆盖率",
   defects: "缺陷跟踪", environments: "环境管理", schedules: "定时任务与触发",
   notifications: "通知与集成",

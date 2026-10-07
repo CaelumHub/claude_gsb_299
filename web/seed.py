@@ -13,7 +13,7 @@ import time
 from engine import new_id
 
 
-def seed_demo_data(registry, env_mgr, notify_mgr) -> dict:
+def seed_demo_data(registry, env_mgr, notify_mgr, contract_mgr=None) -> dict:
     """生成演示项目，返回 ``{"project": ..., "env_id": ..., "suite_id": ...}``。"""
     proj = {
         "id": new_id("proj"),
@@ -139,5 +139,52 @@ def seed_demo_data(registry, env_mgr, notify_mgr) -> dict:
         "config": {"address": "qa@example.com"},
         "events": ["build.failed"],
     })
+
+    # 演示契约：健康检查 / 登录的契约与 mock 响应一致；用户列表契约要求
+    # 返回 users 数组，而 mock 并不返回——用例断言照常通过，但报告里会
+    # 出现「契约违背」，正好演示契约校验补位断言盲区的能力。
+    if contract_mgr is not None:
+        contract_mgr.create(pid, {
+            "name": "健康检查", "method": "GET", "path": "/api/health",
+            "spec": {
+                "request": {"params": []},
+                "response": {
+                    "status_codes": [200],
+                    "fields": [
+                        {"path": "ok", "type": "boolean", "required": True},
+                        {"path": "echo", "type": "object", "required": True},
+                        {"path": "echo.method", "type": "string", "required": True},
+                        {"path": "echo.url", "type": "string", "required": True},
+                        {"path": "echo.params", "type": "object", "required": False},
+                    ],
+                },
+            },
+            "change_summary": "初始版本",
+        })
+        contract_mgr.create(pid, {
+            "name": "登录", "method": "POST", "path": "/api/login",
+            "spec": {
+                "request": {"params": []},
+                "response": {
+                    "status_codes": [200],
+                    "fields": [{"path": "ok", "type": "boolean", "required": True}],
+                },
+            },
+            "change_summary": "初始版本",
+        })
+        contract_mgr.create(pid, {
+            "name": "用户列表", "method": "GET", "path": "/api/users",
+            "spec": {
+                "request": {"params": []},
+                "response": {
+                    "status_codes": [200],
+                    "fields": [
+                        {"path": "ok", "type": "boolean", "required": True},
+                        {"path": "users", "type": "array", "required": True},
+                    ],
+                },
+            },
+            "change_summary": "初始版本（服务端尚未返回 users 字段，用于演示契约违背）",
+        })
 
     return {"project": proj, "env_id": env["id"], "suite_id": suite["id"]}

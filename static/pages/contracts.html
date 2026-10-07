@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>接口契约 - 自动化测试与持续集成平台</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .contract-list { max-height: 640px; overflow: auto; }
+    .contract-item { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+      margin-bottom: 8px; cursor: pointer; transition: all .12s; }
+    .contract-item:hover { border-color: var(--primary); }
+    .contract-item.active { border-color: var(--primary); background: var(--primary-soft); }
+    .method { font-family: var(--mono); font-weight: 700; font-size: 12px; padding: 1px 7px;
+      border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); }
+    .method.GET { color: var(--green); } .method.POST { color: var(--primary); }
+    .method.PUT { color: var(--amber); } .method.DELETE { color: var(--red); }
+    .path { font-family: var(--mono); font-size: 13px; }
+    .json-editor { width: 100%; min-height: 180px; font-family: var(--mono); font-size: 12.5px; }
+    .conflict { background: #fef3e2; border: 1px solid #f5d9a8; border-radius: 8px;
+      padding: 8px 12px; margin-bottom: 6px; font-size: 13px; }
+    .verdict { font-weight: 700; } .verdict.ok { color: var(--green); } .verdict.bad { color: var(--red); }
+    .diff-item { font-size: 13px; padding: 3px 0; }
+    .section-title { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="site-sidebar"></aside>
+
+  <main class="main">
+    <h1 class="page-title">接口契约</h1>
+    <p class="page-desc">为接口维护契约（请求参数、响应字段与类型、必填项），按版本管理并保留变更历史；
+      可从用例断言自动提炼草稿，执行时对照生效版本校验，契约违背会进入测试报告。</p>
+
+    <div class="card">
+      <div class="row">
+        <label style="margin:0 6px 0 0;align-self:center">项目</label>
+        <select id="project-select" style="max-width:240px" onchange="switchProject(this.value)"></select>
+        <button class="btn" id="btn-new">新建契约</button>
+        <button class="btn secondary" id="btn-extract" title="扫描项目用例的断言，为每个接口生成契约草稿">从用例提炼草稿</button>
+        <span style="flex:1"></span>
+        <button class="btn secondary" id="btn-refresh">刷新</button>
+      </div>
+    </div>
+
+    <div class="grid cols-2">
+      <section class="card">
+        <h2>契约列表 <span class="muted" id="contract-count" style="font-weight:400"></span></h2>
+        <div class="contract-list" id="contract-list"><div class="empty">加载中…</div></div>
+      </section>
+
+      <section class="card">
+        <div class="row spread"><h2 style="margin:0" id="detail-title">契约详情</h2>
+          <div class="row" id="detail-actions" style="display:none">
+            <button class="btn secondary small" id="btn-impact">升级影响</button>
+            <button class="btn secondary small" id="btn-compare">版本对比</button>
+            <button class="btn secondary small" id="btn-new-version">发布新版本</button>
+            <button class="btn danger small" id="btn-delete">删除</button>
+          </div>
+        </div>
+        <div id="detail-body"><div class="empty">请选择左侧契约，或点击「从用例提炼草稿」</div></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/common.js"></script>
+<script>
+renderNav("contracts");
+
+const CONTRACT_STATUS = { draft: "草稿", active: "生效中", deprecated: "已停用" };
+const CONTRACT_BADGE = { draft: "timeout", active: "passed", deprecated: "cancelled" };
+const SPEC_TEMPLATE = {
+  request: { params: [{ name: "user_id", type: "integer", required: true }] },
+  response: { status_codes: [200], fields: [{ path: "ok", type: "boolean", required: true }] },
+};
+
+let projectId = null;
+let contracts = [];
+let currentId = null;
+let current = null;   // 当前契约详情（含 spec）
+let versions = [];    // 当前契约的版本历史
+
+// ---------- 数据加载 ----------
+async function init() {
+  const params = new URLSearchParams(location.search);
+  projectId = await fillProjectSelect($("#project-select"), params.get("project_id"));
+  await loadContracts();
+}
+
+async function switchProject(id) {
+  projectId = id; currentId = null; current = null; versions = [];
+  $("#detail-actions").style.display = "none";
+  $("#detail-title").textContent = "契约详情";
+  $("#detail-body").innerHTML = '<div class="empty">请选择左侧契约</div>';
+  await loadContracts();
+}
+
+async function loadContracts() {
+  if (!projectId) return;
+  const d = await api(`/api/projects/${projectId}/contracts`);
+  contracts = d.contracts || [];
+  $("#contract-count").textContent = `（${contracts.length}）`;
+  const host = $("#contract-list");
+  if (!contracts.length) {
+    host.innerHTML = '<div class="empty">暂无契约。点击「从用例提炼草稿」自动生成，或「新建契约」手工维护。</div>';
+    return;
+  }
+  host.innerHTML = contracts.map(c => `
+    <div class="contract-item ${c.id === currentId ? "active" : ""}" onclick="selectContract('${c.id}')">
+      <div class="row" style="gap:8px">
+        <span class="method ${esc(c.method)}">${esc(c.method)}</span>
+        <span class="path">${esc(c.path)}</span>
+        <span style="flex:1"></span>
+        ${c.has_draft ? '<span class="badge timeout">待确认草稿</span>' : ""}
+        <span class="badge ${CONTRACT_BADGE[c.status] || "pending"}">${CONTRACT_STATUS[c.status] || c.status}</span>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:3px">${esc(c.name)} ·
+        ${c.current_version ? "当前 v" + c.current_version : "尚未发布版本"}</div>
+    </div>`).join("");
+}
+
+async function selectContract(id) {
+  currentId = id;
+  const [detail, vers] = await Promise.all([
+    api(`/api/contracts/${id}`),
+    api(`/api/contracts/${id}/versions`),
+  ]);
+  current = detail;
+  versions = vers.versions || [];
+  $("#detail-actions").style.display = "flex";
+  renderDetail();
+  loadContracts();
+}
+
+// ---------- 详情渲染 ----------
+function specTables(spec) {
+  if (!spec) return '<div class="muted">尚未发布版本。</div>';
+  const params = (spec.request && spec.request.params) || [];
+  const fields = (spec.response && spec.response.fields) || [];
+  const codes = (spec.response && spec.response.status_codes) || [];
+  const row = (name, e) => `<tr><td class="path">${esc(name)}</td>
+    <td><span class="tag">${esc(e.type)}</span></td>
+    <td>${e.required ? '<span class="badge failed">必填</span>' : '<span class="badge pending">可选</span>'}</td></tr>`;
+  return `
+    <div class="mt"><strong>状态码</strong>：${codes.length ? codes.map(c => `<span class="tag">${c}</span>`).join(" ") : '<span class="muted">不限</span>'}</div>
+    <div class="mt"><strong>请求参数</strong>${params.length ? `<table>
+      <thead><tr><th>参数</th><th>类型</th><th>必填</th></tr></thead>
+      <tbody>${params.map(p => row(p.name, p)).join("")}</tbody></table>` : '<span class="muted">（无约束）</span>'}</div>
+    <div class="mt"><strong>响应字段</strong>${fields.length ? `<table>
+      <thead><tr><th>字段路径</th><th>类型</th><th>必填</th></tr></thead>
+      <tbody>${fields.map(f => row(f.path, f)).join("")}</tbody></table>` : '<span class="muted">（无约束）</span>'}</div>`;
+}
+
+function conflictsHtml(conflicts) {
+  if (!conflicts || !conflicts.length) return "";
+  return `<div class="mt"><strong>提炼取舍（${conflicts.length} 处冲突已按规则处理）</strong>
+    ${conflicts.map(c => {
+      const chosenText = c.kind === "required" ? (c.chosen ? "必填" : "可选") : c.chosen;
+      const dropped = (c.candidates || []).filter(x => x.type !== c.chosen)
+        .map(x => `${x.type}（${x.votes} 票：${(x.cases || []).join("、")}）`).join("；");
+      return `<div class="conflict">字段 <code>${esc(c.path)}</code>：
+        采纳 <strong>${esc(String(chosenText))}</strong>${dropped ? `，舍弃 ${esc(dropped)}` : ""}
+        <div class="muted" style="font-size:12px">规则：${esc(c.rule || "")}${c.detail ? " · " + esc(c.detail) : ""}</div></div>`;
+    }).join("")}</div>`;
+}
+
+function renderDetail() {
+  const c = current;
+  $("#detail-title").textContent = c.name || `${c.method} ${c.path}`;
+  const vers = versions.map(v => `
+    <div class="diff-item">
+      <span class="tag">v${v.version}</span>
+      <span class="muted">${v.source === "extracted" ? "提炼" : "手工"} · ${fmtTime(v.created_at)}</span>
+      ${esc(v.change_summary || "")}
+      ${(v.diff_from_previous || []).map(d => `<div class="muted" style="font-size:12px;padding-left:18px">· ${esc(d.detail)}</div>`).join("")}
+    </div>`).join("");
+
+  $("#detail-body").innerHTML = `
+    <div class="row mt" style="gap:8px">
+      <span class="method ${esc(c.method)}">${esc(c.method)}</span>
+      <span class="path">${esc(c.path)}</span>
+      <span class="badge ${CONTRACT_BADGE[c.status] || "pending"}">${CONTRACT_STATUS[c.status] || c.status}</span>
+      <span class="muted">${c.current_version ? "当前生效 v" + c.current_version : "草稿，尚未发布"}</span>
+    </div>
+
+    ${c.has_draft ? `<div class="section-title"><h3 style="margin:0">待确认草稿</h3>
+        <button class="btn small" onclick="confirmDraft()">确认发布为 v${(c.current_version || 0) + 1}</button>
+        <button class="btn secondary small" onclick="discardDraft()">放弃草稿</button></div>
+      ${conflictsHtml(c.draft_conflicts)}
+      ${specTables(c.draft_spec)}` : ""}
+
+    <div class="section-title"><h3 style="margin:0">当前契约${c.current_version ? "（v" + c.current_version + "）" : ""}</h3></div>
+    ${specTables(c.spec)}
+
+    <div class="section-title"><h3 style="margin:0">版本历史（${versions.length}）</h3></div>
+    ${versions.length ? vers : '<div class="muted">还没有发布过版本。</div>'}
+
+    <div id="impact-out"></div>
+    <div id="compare-out"></div>`;
+}
+
+// ---------- 新建 / 发布新版本 ----------
+$("#btn-new").onclick = () => {
+  currentId = null; current = null;
+  $("#detail-actions").style.display = "none";
+  $("#detail-title").textContent = "新建契约";
+  $("#detail-body").innerHTML = `
+    <div class="grid cols-3 mt">
+      <div><label>名称</label><input type="text" id="n-name" placeholder="如：用户列表"></div>
+      <div><label>方法</label><select id="n-method">${["GET","POST","PUT","DELETE"].map(m => `<option>${m}</option>`).join("")}</select></div>
+      <div><label>路径</label><input type="text" id="n-path" placeholder="/api/users"></div>
+    </div>
+    <div class="mt"><label>契约规格（JSON：请求参数 / 响应状态码 / 响应字段与类型、必填项）</label>
+      <textarea class="json-editor" id="n-spec">${esc(JSON.stringify(SPEC_TEMPLATE, null, 2))}</textarea></div>
+    <div class="mt"><button class="btn" onclick="createContract()">创建并发布 v1</button></div>`;
+  loadContracts();
+};
+
+async function createContract() {
+  let spec;
+  try { spec = JSON.parse($("#n-spec").value); } catch (e) { return toast("规格 JSON 解析失败：" + e.message, "error"); }
+  const body = { name: $("#n-name").value.trim(), method: $("#n-method").value,
+                 path: $("#n-path").value.trim(), spec };
+  if (!body.path) return toast("请填写接口路径", "error");
+  try {
+    const c = await api(`/api/projects/${projectId}/contracts`, { method: "POST", body });
+    toast("已创建并发布 v1");
+    await loadContracts();
+    selectContract(c.id);
+  } catch (e) { toast(e.message, "error"); }
+}
+
+$("#btn-new-version").onclick = () => {
+  if (!current) return;
+  const base = current.draft_spec || current.spec || SPEC_TEMPLATE;
+  $("#detail-body").innerHTML = `
+    <div class="mt muted">基于 ${current.draft_spec ? "待确认草稿" : "当前 v" + current.current_version} 编辑，发布后成为 v${(current.current_version || 0) + 1}，旧版本保留在历史中。</div>
+    <div class="mt"><label>变更说明</label><input type="text" id="v-summary" placeholder="如：新增必填字段 trace_id"></div>
+    <div class="mt"><label>契约规格（JSON）</label>
+      <textarea class="json-editor" id="v-spec">${esc(JSON.stringify(base, null, 2))}</textarea></div>
+    <div class="mt"><button class="btn" onclick="publishVersion()">发布 v${(current.current_version || 0) + 1}</button>
+      <button class="btn secondary" onclick="renderDetail()">取消</button></div>`;
+};
+
+async function publishVersion() {
+  let spec;
+  try { spec = JSON.parse($("#v-spec").value); } catch (e) { return toast("规格 JSON 解析失败：" + e.message, "error"); }
+  try {
+    await api(`/api/contracts/${currentId}/versions`, { method: "POST",
+      body: { spec, change_summary: $("#v-summary").value.trim() } });
+    toast("已发布新版本");
+    await selectContract(currentId);
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ---------- 提炼草稿 ----------
+$("#btn-extract").onclick = async () => {
+  if (!projectId) return toast("请先选择项目", "error");
+  setLoading($("#btn-extract"), true, "提炼中…");
+  try {
+    const d = await api(`/api/projects/${projectId}/contracts/extract`, { method: "POST", body: {} });
+    const nConflict = (d.drafts || []).reduce((n, x) => n + (x.conflicts || []).length, 0);
+    toast(`提炼出 ${d.count} 份草稿${nConflict ? `，其中 ${nConflict} 处冲突已按规则取舍` : ""}，请在契约详情中确认`);
+    await loadContracts();
+  } catch (e) { toast(e.message, "error"); }
+  setLoading($("#btn-extract"), false);
+};
+
+async function confirmDraft() {
+  const summary = prompt("变更说明", "确认提炼草稿");
+  if (summary === null) return;
+  await api(`/api/contracts/${currentId}/confirm`, { method: "POST", body: { change_summary: summary } });
+  toast("草稿已发布");
+  await selectContract(currentId);
+}
+
+async function discardDraft() {
+  if (!confirm("确认放弃这份草稿？已发布的版本不受影响。")) return;
+  await api(`/api/contracts/${currentId}/discard_draft`, { method: "POST", body: {} });
+  toast("草稿已放弃");
+  await selectContract(currentId);
+}
+
+$("#btn-delete").onclick = async () => {
+  if (!currentId || !confirm("确认删除该契约及其全部版本历史？")) return;
+  await api(`/api/contracts/${currentId}`, { method: "DELETE" });
+  toast("已删除");
+  currentId = null; current = null;
+  $("#detail-actions").style.display = "none";
+  $("#detail-title").textContent = "契约详情";
+  $("#detail-body").innerHTML = '<div class="empty">请选择左侧契约</div>';
+  loadContracts();
+};
+
+$("#btn-refresh").onclick = async () => { await loadContracts(); if (currentId) await selectContract(currentId); };
+
+// ---------- 升级影响分析 ----------
+$("#btn-impact").onclick = async () => {
+  if (!currentId) return;
+  const d = await api(`/api/contracts/${currentId}/impact`);
+  const cases = d.cases_outdated || [];
+  const builds = d.builds_outdated || [];
+  const flips = d.verdict_changes || [];
+  $("#impact-out").innerHTML = `
+    <div class="section-title"><h3 style="margin:0">升级影响（v${d.from_version} → v${d.to_version}）</h3></div>
+    <div class="grid cols-3">
+      <div class="stat ${cases.length ? "bad" : "good"}"><div class="v">${cases.length}</div><div class="k">仍按旧契约断言的用例</div></div>
+      <div class="stat ${builds.length ? "bad" : "good"}"><div class="v">${builds.length}</div><div class="k">按旧版本校验的历史报告</div></div>
+      <div class="stat ${flips.length ? "bad" : "good"}"><div class="v">${flips.length}</div><div class="k">判定翻转的历史响应</div></div>
+    </div>
+    ${(d.diff || []).length ? `<div class="mt"><strong>版本变更</strong>${d.diff.map(x => `<div class="diff-item muted">· ${esc(x.detail)}</div>`).join("")}</div>` : ""}
+    ${cases.length ? `<div class="mt"><strong>用例清单</strong><table>
+      <thead><tr><th>用例</th><th>问题</th></tr></thead>
+      <tbody>${cases.map(c => `<tr><td>${esc(c.case_name)}</td>
+        <td class="muted" style="font-size:13px">${c.issues.map(esc).join("<br>")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${builds.length ? `<div class="mt"><strong>历史报告清单</strong><table>
+      <thead><tr><th>构建</th><th>校验时版本</th><th>状态</th><th>结束时间</th></tr></thead>
+      <tbody>${builds.map(b => `<tr><td><a href="/page/reports.html?project_id=${projectId}">${esc(b.name)}</a></td>
+        <td><span class="tag">v${b.checked_version}</span>（当前 v${b.current_version}）</td>
+        <td>${statusBadge(b.status)}</td><td class="muted">${fmtTime(b.finished_at)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${flips.length ? `<div class="mt"><strong>判定翻转（同一响应在新旧契约下结论不同）</strong><table>
+      <thead><tr><th>用例</th><th>当时判定（v?）</th><th>按 v${d.to_version} 重判</th><th>现在的违背项</th></tr></thead>
+      <tbody>${flips.map(f => `<tr><td>${esc(f.case_name || f.case_id)}</td>
+        <td><span class="verdict ${f.old_ok ? "ok" : "bad"}">${f.old_ok ? "符合" : "违背"}</span> <span class="tag">v${f.checked_version}</span></td>
+        <td><span class="verdict ${f.new_ok ? "ok" : "bad"}">${f.new_ok ? "符合" : "违背"}</span></td>
+        <td class="muted" style="font-size:13px">${(f.violations_now || []).map(v => esc(v.message)).join("<br>")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    <div class="muted mt" style="font-size:12px">共重新校验 ${d.revalidated_checks} 条历史契约检查记录。</div>`;
+};
+
+// ---------- 版本对比 ----------
+$("#btn-compare").onclick = () => {
+  if (!current || !versions.length) return toast("还没有已发布的版本", "error");
+  const opts = versions.map(v => `<option value="${v.version}">v${v.version}</option>`).join("");
+  $("#compare-out").innerHTML = `
+    <div class="section-title"><h3 style="margin:0">同一响应在两个版本下的判定对比</h3></div>
+    <div class="row mt">
+      <select id="cmp-a" style="max-width:100px">${opts}</select>
+      <select id="cmp-b" style="max-width:100px">${opts}</select>
+      <button class="btn secondary small" onclick="runCompare()">对比</button>
+    </div>
+    <div class="mt"><label>响应样本（JSON：{"status": 200, "body": {...}}）</label>
+      <textarea class="json-editor" id="cmp-resp" style="min-height:100px">${esc(JSON.stringify({ status: 200, body: { ok: true } }, null, 2))}</textarea></div>
+    <div id="cmp-result"></div>`;
+  $("#cmp-b").value = String(current.current_version);
+};
+
+async function runCompare() {
+  let response;
+  try { response = JSON.parse($("#cmp-resp").value); } catch (e) { return toast("响应样本 JSON 解析失败：" + e.message, "error"); }
+  const d = await api(`/api/contracts/${currentId}/compare`, { method: "POST",
+    body: { version_a: Number($("#cmp-a").value), version_b: Number($("#cmp-b").value), response } });
+  const side = (label, x) => `<div class="stat ${x.ok ? "good" : "bad"}">
+    <div class="v" style="font-size:18px">${label}：${x.ok ? "符合契约" : "违背契约"}</div>
+    <div class="k">${(x.violations || []).map(v => esc(v.message)).join("；") || "无违背项"}</div></div>`;
+  $("#cmp-result").innerHTML = `
+    <div class="grid cols-2 mt">${side("v" + d.a.version, d.a)}${side("v" + d.b.version, d.b)}</div>
+    ${d.verdict_changed ? '<div class="conflict mt">两个版本对这份响应的判定不同。</div>' : '<div class="muted mt">两个版本判定一致。</div>'}`;
+};
+
+init();
+</script>
+</body>
+</html>

@@ -87,6 +87,8 @@ class ReportGenerator:
                 "skipped": skipped,
                 "timeout": timeout,
                 "pass_rate": pass_rate,
+                "contract_checks": build.get("contract_checks", 0),
+                "contract_violations": build.get("contract_violations", 0),
             },
             "durations": {
                 "avg": round(statistics.mean(durations), 3) if durations else 0.0,
@@ -98,11 +100,41 @@ class ReportGenerator:
             },
             "by_group": build.get("by_group", {}),
             "by_priority": build.get("by_priority", {}),
+            "contract": {
+                "checks": build.get("contract_checks", 0),
+                "violations": build.get("contract_violations", 0),
+                "snapshot": build.get("contract_snapshot", {}),
+                # 无契约校验的构建跳过结果扫描，保持报告生成零额外开销
+                "violation_details": self._contract_violations(store, build_id, 50)
+                if build.get("contract_checks") else [],
+            },
             "slowest": self._slowest(store, build_id, 10),
             "failures": self._failures(store, build_id, 50),
             "generated_at": time.time(),
         }
         return report
+
+    def _contract_violations(self, store, build_id: str, top: int) -> list[dict]:
+        """收集契约违背明细（top-N），供报告「契约违背」小节展示。"""
+        out = []
+        for r in store.results(build_id):
+            for check in r.get("contract_checks") or []:
+                if check.get("ok"):
+                    continue
+                out.append({
+                    "case_id": r.get("case_id"),
+                    "case_name": r.get("case_name"),
+                    "contract_id": check.get("contract_id"),
+                    "contract_name": check.get("contract_name"),
+                    "method": check.get("method"),
+                    "path": check.get("path"),
+                    "version": check.get("version"),
+                    "violations": [v.get("message") for v in
+                                   (check.get("violations") or [])],
+                })
+                if len(out) >= top:
+                    return out
+        return out
 
     def _slowest(self, store, build_id: str, top: int) -> list[dict]:
         records = store.results(build_id, order_by="duration", order="desc",
@@ -147,6 +179,7 @@ class ReportGenerator:
                 "total": b.get("total", 0),
                 "passed": b.get("passed", 0),
                 "failed": b.get("failed", 0) + b.get("error", 0) + b.get("timeout", 0),
+                "contract_violations": b.get("contract_violations", 0),
                 "pass_rate": round(b.get("passed", 0) / finished * 100, 1) if finished else 0,
                 "duration": b.get("duration", 0.0),
                 "finished_at": b.get("finished_at"),

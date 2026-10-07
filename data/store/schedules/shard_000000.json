@@ -1,13 +1,13 @@
 [
   {
-    "id": "sch_1791298319331_a77417",
-    "project_id": "proj_1791298319304_0e434a",
+    "id": "sch_1791345590854_a24e9a",
+    "project_id": "proj_1791345590827_4e9791",
     "name": "每 10 分钟跑一次冒烟",
     "cron": "*/10 * * * *",
-    "suite_id": "suite_1791298319327_c6d5eb",
-    "env_id": "env_1791298319306_7b142b",
+    "suite_id": "suite_1791345590851_d9f538",
+    "env_id": "env_1791345590830_3c4297",
     "enabled": false,
     "last_fired_minute": null,
-    "created_at": 1791298319.3311644
+    "created_at": 1791345590.8547647
   }
 ]

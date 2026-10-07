@@ -33,6 +33,7 @@ class Scheduler:
 
     def __init__(self, registry, build_registry, executor, env_manager,
                  report_gen, coverage_analyzer, defect_manager, notify_manager,
+                 contract_manager=None,
                  max_build_workers: int = 4, max_case_workers: int = 8,
                  tick_seconds: float = 20.0):
         self.registry = registry
@@ -43,6 +44,7 @@ class Scheduler:
         self.coverage = coverage_analyzer
         self.defects = defect_manager
         self.notify = notify_manager
+        self.contracts = contract_manager
 
         self.max_build_workers = max_build_workers
         self.max_case_workers = max_case_workers
@@ -149,9 +151,16 @@ class Scheduler:
                    env_id: str, cancel_event: threading.Event) -> None:
         store = self.builds.for_project(project_id)
         env_config = self.env_manager.to_executor_config(env_id)
+        # 构建开始时快照项目当前生效的契约，整场构建按同一批版本校验
+        contracts = []
+        if self.contracts is not None:
+            try:
+                contracts = self.contracts.active_specs(project_id)
+            except Exception:  # noqa: BLE001
+                contracts = []
         store.set_total(build_id, len(cases))
         store.append_log(build_id, f"构建 {build_id} 开始，共 {len(cases)} 个用例，"
-                                   f"环境 {env_id}")
+                                   f"环境 {env_id}，生效契约 {len(contracts)} 份")
 
         case_workers = max(1, min(self.max_case_workers, len(cases)))
         try:
@@ -163,7 +172,7 @@ class Scheduler:
                         break
                     futures[pool.submit(
                         self._run_one, case, env_config, env_id, i,
-                        cancel_event)] = case
+                        cancel_event, contracts)] = case
 
                 for future in as_completed(futures):
                     case = futures[future]
@@ -179,6 +188,7 @@ class Scheduler:
                             "duration": 0.0,
                             "steps": [],
                             "assertions": [],
+                            "contract_checks": [],
                             "logs": [f"用例执行异常: {exc}"],
                         }
                     self._persist_result(store, build_id, case, result)
@@ -194,6 +204,7 @@ class Scheduler:
                             "status": "skipped",
                             "duration": 0.0,
                             "steps": [], "assertions": [],
+                            "contract_checks": [],
                             "logs": ["因取消而未执行"],
                         }
                         self._persist_result(store, build_id, case, skipped)
@@ -219,10 +230,11 @@ class Scheduler:
             self._running.pop(build_id, None)
 
     def _run_one(self, case: dict, env_config: dict, env_id: str,
-                 index: int, cancel_event: threading.Event) -> dict:
+                 index: int, cancel_event: threading.Event,
+                 contracts: list = None) -> dict:
         result = self.executor.execute_case(
             case, env_config, cancel_event=cancel_event,
-            timeout=case.get("timeout", 60))
+            timeout=case.get("timeout", 60), contracts=contracts)
         result["env_id"] = env_id
         result["order"] = index
         return result

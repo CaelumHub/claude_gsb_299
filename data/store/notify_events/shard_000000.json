@@ -1,65 +1,65 @@
 [
   {
-    "id": "evt_1791298319998_244734",
-    "project_id": "proj_1791298319304_0e434a",
-    "integration_id": "int_1791298319332_4e32a7",
+    "id": "evt_1791345591546_355e07",
+    "project_id": "proj_1791345590827_4e9791",
+    "integration_id": "int_1791345590856_19a42b",
     "integration_name": "CI Webhook",
     "type": "webhook",
     "event": "build.finished",
     "status": "delivered",
     "recipient": "https://example.com/hooks/ci",
-    "latency_ms": 73,
+    "latency_ms": 9,
     "payload": {
-      "build_id": "build_1791298319336_efd70a",
-      "project_id": "proj_1791298319304_0e434a",
+      "build_id": "build_1791345590875_75d636",
+      "project_id": "proj_1791345590827_4e9791",
       "status": "failed",
       "passed": 6,
       "total": 8,
       "pass_rate": 75.0,
-      "duration": 0.653
+      "duration": 0.661
     },
-    "created_at": 1791298319.99901
+    "created_at": 1791345591.5463557
   },
   {
-    "id": "evt_1791298320000_3fa1fa",
-    "project_id": "proj_1791298319304_0e434a",
-    "integration_id": "int_1791298319332_4e32a7",
+    "id": "evt_1791345591548_26cba1",
+    "project_id": "proj_1791345590827_4e9791",
+    "integration_id": "int_1791345590856_19a42b",
     "integration_name": "CI Webhook",
     "type": "webhook",
     "event": "build.failed",
     "status": "delivered",
     "recipient": "https://example.com/hooks/ci",
-    "latency_ms": 76,
+    "latency_ms": 87,
     "payload": {
-      "build_id": "build_1791298319336_efd70a",
-      "project_id": "proj_1791298319304_0e434a",
+      "build_id": "build_1791345590875_75d636",
+      "project_id": "proj_1791345590827_4e9791",
       "status": "failed",
       "passed": 6,
       "total": 8,
       "pass_rate": 75.0,
-      "duration": 0.653
+      "duration": 0.661
     },
-    "created_at": 1791298320.0009904
+    "created_at": 1791345591.5484338
   },
   {
-    "id": "evt_1791298320003_b52e6c",
-    "project_id": "proj_1791298319304_0e434a",
-    "integration_id": "int_1791298319334_34d0ad",
+    "id": "evt_1791345591550_9fc866",
+    "project_id": "proj_1791345590827_4e9791",
+    "integration_id": "int_1791345590858_e16a19",
     "integration_name": "团队邮件",
     "type": "email",
     "event": "build.failed",
     "status": "delivered",
     "recipient": "qa@example.com",
-    "latency_ms": 42,
+    "latency_ms": 91,
     "payload": {
-      "build_id": "build_1791298319336_efd70a",
-      "project_id": "proj_1791298319304_0e434a",
+      "build_id": "build_1791345590875_75d636",
+      "project_id": "proj_1791345590827_4e9791",
       "status": "failed",
       "passed": 6,
       "total": 8,
       "pass_rate": 75.0,
-      "duration": 0.653
+      "duration": 0.661
     },
-    "created_at": 1791298320.0031557
+    "created_at": 1791345591.5501857
   }
 ]

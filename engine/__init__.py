@@ -4,6 +4,7 @@
 --------
 - :mod:`engine.models`      领域模型与通用工具（id 生成、优先级、状态枚举）
 - :mod:`engine.executor`    测试用例执行器（步骤 + 断言 + 模拟请求 + 超时）
+- :mod:`engine.contracts`   接口契约（版本管理、响应校验、契约提炼与影响分析）
 - :mod:`engine.cron`        5 段 cron 表达式匹配（定时触发）
 - :mod:`engine.environments`环境管理（配置、依赖解析、工作区隔离）
 - :mod:`engine.coverage`    代码覆盖率分析（模拟，按构建稳定生成）
@@ -22,6 +23,7 @@ from .models import (
 )
 from .cron import CronSchedule, cron_matches, parse_cron
 from .executor import TestExecutor, ExecutionError
+from .contracts import ContractManager
 from .environments import EnvironmentManager
 from .coverage import CoverageAnalyzer
 from .report import ReportGenerator
@@ -40,6 +42,7 @@ __all__ = [
     "parse_cron",
     "TestExecutor",
     "ExecutionError",
+    "ContractManager",
     "EnvironmentManager",
     "CoverageAnalyzer",
     "ReportGenerator",

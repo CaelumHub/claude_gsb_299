@@ -1,0 +1,8 @@
+{
+  "name": "contract_versions",
+  "shard_size": 200,
+  "shard_count": 1,
+  "total": 3,
+  "next_id": 4,
+  "created_at": 1791345590.8248396
+}

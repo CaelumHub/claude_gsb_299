@@ -57,6 +57,10 @@ def _notify():
     return current_app.config["NOTIFY"]
 
 
+def _contracts():
+    return current_app.config["CONTRACTS"]
+
+
 def _payload() -> dict:
     return request.get_json(silent=True) or {}
 
@@ -242,8 +246,9 @@ def run_single_case(case_id: str):
         return _err("用例不存在", 404)
     data = _payload()
     env_config = _env_mgr().to_executor_config(data.get("env_id")) if data.get("env_id") else {}
-    result = TestExecutor().execute_case(case, env_config,
-                                         timeout=case.get("timeout", 60))
+    result = TestExecutor().execute_case(
+        case, env_config, timeout=case.get("timeout", 60),
+        contracts=_contracts().active_specs(case.get("project_id")))
     return jsonify(result)
 
 
@@ -425,6 +430,134 @@ def delete_build(build_id: str):
         return err
     _builds().for_project(build["project_id"]).delete(build_id)
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# 接口契约
+# ---------------------------------------------------------------------------
+
+@api.get("/projects/<project_id>/contracts")
+def list_contracts(project_id: str):
+    return jsonify({"contracts": _contracts().list(project_id)})
+
+
+@api.post("/projects/<project_id>/contracts")
+def create_contract(project_id: str):
+    data = _payload()
+    try:
+        contract = _contracts().create(project_id, data)
+    except ValueError as exc:
+        return _err(str(exc))
+    return jsonify(contract)
+
+
+@api.post("/projects/<project_id>/contracts/extract")
+def extract_contracts(project_id: str):
+    """从项目用例的断言中提炼契约草稿（写入各契约的 draft，待确认）。"""
+    data = _payload()
+    drafts = _contracts().extract_drafts(project_id, data.get("case_ids"))
+    return jsonify({"drafts": drafts, "count": len(drafts)})
+
+
+@api.get("/contracts/<contract_id>")
+def get_contract(contract_id: str):
+    contract = _contracts().get(contract_id)
+    if contract is None:
+        return _err("契约不存在", 404)
+    return jsonify(contract)
+
+
+@api.put("/contracts/<contract_id>")
+def update_contract(contract_id: str):
+    if _contracts().get(contract_id) is None:
+        return _err("契约不存在", 404)
+    data = _payload()
+    return jsonify(_contracts().update(contract_id, data))
+
+
+@api.delete("/contracts/<contract_id>")
+def delete_contract(contract_id: str):
+    _contracts().delete(contract_id)
+    return jsonify({"ok": True})
+
+
+@api.get("/contracts/<contract_id>/versions")
+def contract_versions(contract_id: str):
+    """版本历史（每个版本附带相对上一版本的变更 diff）。"""
+    if _contracts().get(contract_id) is None:
+        return _err("契约不存在", 404)
+    return jsonify({"versions": _contracts().versions(contract_id)})
+
+
+@api.post("/contracts/<contract_id>/versions")
+def publish_contract_version(contract_id: str):
+    """发布新契约版本（契约升级）。"""
+    if _contracts().get(contract_id) is None:
+        return _err("契约不存在", 404)
+    data = _payload()
+    try:
+        version = _contracts().publish_version(
+            contract_id, data.get("spec"),
+            change_summary=data.get("change_summary", ""))
+    except ValueError as exc:
+        return _err(str(exc))
+    return jsonify(version)
+
+
+@api.get("/contracts/<contract_id>/versions/<int:version_no>")
+def get_contract_version(contract_id: str, version_no: int):
+    version = _contracts().get_version(contract_id, version_no)
+    if version is None:
+        return _err("版本不存在", 404)
+    return jsonify(version)
+
+
+@api.post("/contracts/<contract_id>/confirm")
+def confirm_contract_draft(contract_id: str):
+    """确认提炼草稿：发布为新版本。"""
+    data = _payload()
+    try:
+        version = _contracts().confirm_draft(
+            contract_id, change_summary=data.get("change_summary", ""))
+    except ValueError as exc:
+        return _err(str(exc))
+    if version is None:
+        return _err("契约不存在或没有待确认的草稿", 404)
+    return jsonify(version)
+
+
+@api.post("/contracts/<contract_id>/discard_draft")
+def discard_contract_draft(contract_id: str):
+    contract = _contracts().discard_draft(contract_id)
+    if contract is None:
+        return _err("契约不存在", 404)
+    return jsonify(contract)
+
+
+@api.get("/contracts/<contract_id>/impact")
+def contract_impact(contract_id: str):
+    """升级影响分析：哪些用例 / 历史报告还在按旧契约校验，以及同一份
+    历史响应在新旧契约下的判定差异。"""
+    from_v = request.args.get("from", type=int)
+    to_v = request.args.get("to", type=int)
+    result = _contracts().impact(contract_id, from_version=from_v, to_version=to_v)
+    if "error" in result:
+        return _err(result["error"], 404)
+    return jsonify(result)
+
+
+@api.post("/contracts/<contract_id>/compare")
+def compare_contract_versions(contract_id: str):
+    """同一份响应在两个契约版本下的判定对比。"""
+    data = _payload()
+    result = _contracts().compare(
+        contract_id,
+        int(data.get("version_a", 0)),
+        int(data.get("version_b", 0)),
+        data.get("response") or {})
+    if "error" in result:
+        return _err(result["error"], 404)
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------
@@ -694,6 +827,6 @@ def list_events(project_id: str):
 
 @api.post("/seed/demo")
 def seed_demo():
-    """一键生成演示项目（含用例 / 套件 / 环境 / 计划 / 集成）。"""
+    """一键生成演示项目（含用例 / 套件 / 环境 / 计划 / 集成 / 契约）。"""
     from .seed import seed_demo_data
-    return jsonify(seed_demo_data(_registry(), _env_mgr(), _notify()))
+    return jsonify(seed_demo_data(_registry(), _env_mgr(), _notify(), _contracts()))

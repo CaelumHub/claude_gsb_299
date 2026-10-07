@@ -1,8 +1,8 @@
 {
-  "id": "build_1791298319336_efd70a",
-  "project_id": "proj_1791298319304_0e434a",
-  "suite_id": "suite_1791298319327_c6d5eb",
-  "env_id": "env_1791298319306_7b142b",
+  "id": "build_1791345590875_75d636",
+  "project_id": "proj_1791345590827_4e9791",
+  "suite_id": "suite_1791345590851_d9f538",
+  "env_id": "env_1791345590830_3c4297",
   "name": "冒烟测试套件",
   "trigger": "auto_seed",
   "status": "failed",
@@ -12,9 +12,9 @@
   "error": 0,
   "skipped": 0,
   "timeout": 0,
-  "started_at": 1791298319.3406665,
-  "finished_at": 1791298319.9935536,
-  "duration": 0.653,
+  "started_at": 1791345590.8800106,
+  "finished_at": 1791345591.5405283,
+  "duration": 0.661,
   "by_group": {
     "unit": {
       "total": 2,
@@ -32,16 +32,7 @@
       "error": 0,
       "skipped": 0,
       "timeout": 0,
-      "duration": 0.025
-    },
-    "smoke": {
-      "total": 2,
-      "passed": 2,
-      "failed": 0,
-      "error": 0,
-      "skipped": 0,
-      "timeout": 0,
-      "duration": 0.077
+      "duration": 0.036
     },
     "api": {
       "total": 2,
@@ -50,7 +41,16 @@
       "error": 0,
       "skipped": 0,
       "timeout": 0,
-      "duration": 0.083
+      "duration": 0.099
+    },
+    "smoke": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "error": 0,
+      "skipped": 0,
+      "timeout": 0,
+      "duration": 0.119
     },
     "perf": {
       "total": 1,
@@ -59,7 +59,7 @@
       "error": 0,
       "skipped": 0,
       "timeout": 0,
-      "duration": 0.636
+      "duration": 0.648
     }
   },
   "by_priority": {
@@ -79,7 +79,7 @@
       "skipped": 0,
       "timeout": 0
     },
-    "P0": {
+    "P1": {
       "total": 2,
       "passed": 2,
       "failed": 0,
@@ -87,7 +87,7 @@
       "skipped": 0,
       "timeout": 0
     },
-    "P1": {
+    "P0": {
       "total": 2,
       "passed": 2,
       "failed": 0,
@@ -99,12 +99,19 @@
   "durations": [
     0.0,
     0.0,
-    0.025,
-    0.028,
-    0.039,
-    0.044,
-    0.049,
-    0.636
+    0.036,
+    0.042,
+    0.056,
+    0.057,
+    0.063,
+    0.648
   ],
-  "created_at": 1791298319.3369353
+  "contract_checks": 3,
+  "contract_violations": 1,
+  "contract_snapshot": {
+    "ctr_1791345590870_b98990": 1,
+    "ctr_1791345590860_d622ed": 1,
+    "ctr_1791345590865_f3b04b": 1
+  },
+  "created_at": 1791345590.8758843
 }

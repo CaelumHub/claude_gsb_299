@@ -1,14 +1,14 @@
 {
-  "build_id": "build_1791298319336_efd70a",
-  "project_id": "proj_1791298319304_0e434a",
+  "build_id": "build_1791345590875_75d636",
+  "project_id": "proj_1791345590827_4e9791",
   "name": "冒烟测试套件",
   "status": "failed",
   "trigger": "auto_seed",
-  "suite_id": "suite_1791298319327_c6d5eb",
-  "env_id": "env_1791298319306_7b142b",
-  "started_at": 1791298319.3406665,
-  "finished_at": 1791298319.9935536,
-  "duration": 0.653,
+  "suite_id": "suite_1791345590851_d9f538",
+  "env_id": "env_1791345590830_3c4297",
+  "started_at": 1791345590.8800106,
+  "finished_at": 1791345591.5405283,
+  "duration": 0.661,
   "summary": {
     "total": 8,
     "passed": 6,
@@ -16,14 +16,16 @@
     "error": 0,
     "skipped": 0,
     "timeout": 0,
-    "pass_rate": 75.0
+    "pass_rate": 75.0,
+    "contract_checks": 3,
+    "contract_violations": 1
   },
   "durations": {
-    "avg": 0.103,
-    "median": 0.034,
-    "p95": 0.431,
-    "p99": 0.595,
-    "max": 0.636,
+    "avg": 0.113,
+    "median": 0.049,
+    "p95": 0.443,
+    "p99": 0.607,
+    "max": 0.648,
     "min": 0.0
   },
   "by_group": {
@@ -43,16 +45,7 @@
       "error": 0,
       "skipped": 0,
       "timeout": 0,
-      "duration": 0.025
-    },
-    "smoke": {
-      "total": 2,
-      "passed": 2,
-      "failed": 0,
-      "error": 0,
-      "skipped": 0,
-      "timeout": 0,
-      "duration": 0.077
+      "duration": 0.036
     },
     "api": {
       "total": 2,
@@ -61,7 +54,16 @@
       "error": 0,
       "skipped": 0,
       "timeout": 0,
-      "duration": 0.083
+      "duration": 0.099
+    },
+    "smoke": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "error": 0,
+      "skipped": 0,
+      "timeout": 0,
+      "duration": 0.119
     },
     "perf": {
       "total": 1,
@@ -70,7 +72,7 @@
       "error": 0,
       "skipped": 0,
       "timeout": 0,
-      "duration": 0.636
+      "duration": 0.648
     }
   },
   "by_priority": {
@@ -90,7 +92,7 @@
       "skipped": 0,
       "timeout": 0
     },
-    "P0": {
+    "P1": {
       "total": 2,
       "passed": 2,
       "failed": 0,
@@ -98,7 +100,7 @@
       "skipped": 0,
       "timeout": 0
     },
-    "P1": {
+    "P0": {
       "total": 2,
       "passed": 2,
       "failed": 0,
@@ -107,58 +109,81 @@
       "timeout": 0
     }
   },
+  "contract": {
+    "checks": 3,
+    "violations": 1,
+    "snapshot": {
+      "ctr_1791345590870_b98990": 1,
+      "ctr_1791345590860_d622ed": 1,
+      "ctr_1791345590865_f3b04b": 1
+    },
+    "violation_details": [
+      {
+        "case_id": "case_1791345590838_acc548",
+        "case_name": "用户列表查询",
+        "contract_id": "ctr_1791345590870_b98990",
+        "contract_name": "用户列表",
+        "method": "GET",
+        "path": "/api/users",
+        "version": 1,
+        "violations": [
+          "响应缺少必填字段 users"
+        ]
+      }
+    ]
+  },
   "slowest": [
     {
-      "case_id": "case_1791298319319_d4b19e",
+      "case_id": "case_1791345590842_a6acce",
       "case_name": "慢接口（性能）",
       "status": "passed",
-      "duration": 0.636,
+      "duration": 0.648,
       "group": "perf"
     },
     {
-      "case_id": "case_1791298319311_638fc4",
-      "case_name": "健康检查接口",
-      "status": "passed",
-      "duration": 0.049,
-      "group": "smoke"
-    },
-    {
-      "case_id": "case_1791298319317_133b92",
-      "case_name": "创建项目",
-      "status": "passed",
-      "duration": 0.044,
-      "group": "api"
-    },
-    {
-      "case_id": "case_1791298319315_9c3e18",
-      "case_name": "用户列表查询",
-      "status": "passed",
-      "duration": 0.039,
-      "group": "api"
-    },
-    {
-      "case_id": "case_1791298319313_2f0f95",
+      "case_id": "case_1791345590836_ab67cb",
       "case_name": "登录接口",
       "status": "passed",
-      "duration": 0.028,
+      "duration": 0.063,
       "group": "smoke"
     },
     {
-      "case_id": "case_1791298319321_4a0c2f",
+      "case_id": "case_1791345590840_7e7181",
+      "case_name": "创建项目",
+      "status": "passed",
+      "duration": 0.057,
+      "group": "api"
+    },
+    {
+      "case_id": "case_1791345590834_30fc80",
+      "case_name": "健康检查接口",
+      "status": "passed",
+      "duration": 0.056,
+      "group": "smoke"
+    },
+    {
+      "case_id": "case_1791345590838_acc548",
+      "case_name": "用户列表查询",
+      "status": "passed",
+      "duration": 0.042,
+      "group": "api"
+    },
+    {
+      "case_id": "case_1791345590844_eb4f90",
       "case_name": "失败注入接口",
       "status": "failed",
-      "duration": 0.025,
+      "duration": 0.036,
       "group": "chaos"
     },
     {
-      "case_id": "case_1791298319323_15490a",
+      "case_id": "case_1791345590846_d8a1fd",
       "case_name": "字符串断言",
       "status": "passed",
       "duration": 0.0,
       "group": "unit"
     },
     {
-      "case_id": "case_1791298319325_1ca4c8",
+      "case_id": "case_1791345590848_b4b232",
       "case_name": "正则断言",
       "status": "failed",
       "duration": 0.0,
@@ -167,7 +192,7 @@
   ],
   "failures": [
     {
-      "case_id": "case_1791298319325_1ca4c8",
+      "case_id": "case_1791345590848_b4b232",
       "case_name": "正则断言",
       "status": "failed",
       "group": "unit",
@@ -176,14 +201,14 @@
       "reason": "期望匹配 /^\\d+\\.\\d+/"
     },
     {
-      "case_id": "case_1791298319321_4a0c2f",
+      "case_id": "case_1791345590844_eb4f90",
       "case_name": "失败注入接口",
       "status": "failed",
       "group": "chaos",
       "priority": "P2",
-      "duration": 0.025,
+      "duration": 0.036,
       "reason": "期望状态码 == 200"
     }
   ],
-  "generated_at": 1791298319.996503
+  "generated_at": 1791345591.5438156
 }

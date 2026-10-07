@@ -1,7 +1,7 @@
 [
   {
-    "id": "env_1791298319306_7b142b",
-    "project_id": "proj_1791298319304_0e434a",
+    "id": "env_1791345590830_3c4297",
+    "project_id": "proj_1791345590827_4e9791",
     "name": "dev 开发环境",
     "description": "",
     "python_version": "3.11",
@@ -29,11 +29,11 @@
       "latency_ms": 15,
       "fail_rate": 0.0
     },
-    "created_at": 1791298319.306705
+    "created_at": 1791345590.8307388
   },
   {
-    "id": "env_1791298319308_930778",
-    "project_id": "proj_1791298319304_0e434a",
+    "id": "env_1791345590832_6ba739",
+    "project_id": "proj_1791345590827_4e9791",
     "name": "staging 预发环境",
     "description": "",
     "python_version": "3.12",
@@ -61,6 +61,6 @@
       "latency_ms": 45,
       "fail_rate": 0.15
     },
-    "created_at": 1791298319.3085582
+    "created_at": 1791345590.8326855
   }
 ]

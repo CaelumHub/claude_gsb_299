@@ -101,7 +101,8 @@ async function loadBuilds() {
   host.innerHTML = builds.map(b => `
     <div class="build-item ${b.id===currentBuild?'active':''}" onclick="selectBuild('${b.id}')">
       <div class="row spread"><strong>${esc(b.name||b.id)}</strong>${statusBadge(b.status)}</div>
-      <div class="muted" style="font-size:12px">通过 ${b.passed||0}/${b.total||0} · ${fmtDur(b.duration)} · ${fmtTime(b.finished_at)}</div>
+      <div class="muted" style="font-size:12px">通过 ${b.passed||0}/${b.total||0} · ${fmtDur(b.duration)} · ${fmtTime(b.finished_at)}
+        ${b.contract_violations ? `<span class="badge failed" title="契约违背">契约违背 ${b.contract_violations}</span>` : ""}</div>
     </div>`).join("");
 }
 
@@ -120,6 +121,8 @@ function renderReport(r) {
   const prio = Object.entries(r.by_priority || {});
   const failures = r.failures || [];
   const slowest = r.slowest || [];
+  const contract = r.contract || {};
+  const violations = contract.violation_details || [];
 
   $("#report-body").innerHTML = `
     <div class="grid cols-4 mt">
@@ -138,6 +141,19 @@ function renderReport(r) {
       <div class="stat"><div class="v">${fmtDur(d.p95)}</div><div class="k">P95</div></div>
       <div class="stat"><div class="v">${fmtDur(d.max)}</div><div class="k">最慢</div></div>
     </div>
+
+    ${contract.checks ? `<div class="mt"><h3>契约校验</h3>
+      <div class="grid cols-4">
+        <div class="stat primary"><div class="v">${contract.checks}</div><div class="k">契约检查次数</div></div>
+        <div class="stat ${contract.violations ? "bad" : "good"}"><div class="v">${contract.violations || 0}</div><div class="k">契约违背</div></div>
+      </div>
+      ${violations.length ? `<table class="mt">
+        <thead><tr><th>用例</th><th>接口</th><th>契约版本</th><th>违背项</th></tr></thead>
+        <tbody>${violations.map(v => `<tr><td>${esc(v.case_name || v.case_id)}</td>
+          <td><span class="tag">${esc(v.method)}</span> <span class="muted">${esc(v.path)}</span></td>
+          <td><span class="tag">v${v.version}</span></td>
+          <td class="muted" style="font-size:13px">${(v.violations || []).map(esc).join("<br>")}</td></tr>`).join("")}</tbody></table>` : ""}
+    </div>` : ""}
 
     ${groups.length ? `<div class="mt"><h3>按分组</h3><table>
       <thead><tr><th>分组</th><th>总数</th><th>通过</th><th>失败</th><th>通过率</th><th>耗时</th></tr></thead>

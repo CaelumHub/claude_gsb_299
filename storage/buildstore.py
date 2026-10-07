@@ -72,6 +72,10 @@ def _empty_build(build_id: str, project_id: str, **kw: Any) -> dict:
         "by_group": {},
         "by_priority": {},
         "durations": [],
+        # 契约校验聚合：校验次数 / 违背次数 / 各契约当时生效的版本快照
+        "contract_checks": 0,
+        "contract_violations": 0,
+        "contract_snapshot": {},
         "created_at": time.time(),
     }
     return build
@@ -212,6 +216,17 @@ class BuildStore:
                                           "error": 0, "skipped": 0, "timeout": 0})
             pe["total"] += 1
             pe[status if status in pe else "error"] += 1
+
+            # 1.5) 契约校验聚合：计数 + 记录各契约本次校验所用版本
+            checks = result.get("contract_checks") or []
+            if checks:
+                build["contract_checks"] = build.get("contract_checks", 0) + len(checks)
+                build["contract_violations"] = build.get("contract_violations", 0) + \
+                    sum(1 for c in checks if not c.get("ok"))
+                snapshot = build.setdefault("contract_snapshot", {})
+                for c in checks:
+                    if c.get("contract_id"):
+                        snapshot[c["contract_id"]] = c.get("version")
 
             # 2) 结果落分片
             meta = read_json(self._results_meta_path(build_id), {"shard_count": 0, "total": 0})

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "ctr_1791345590860_d622ed",
+    "project_id": "proj_1791345590827_4e9791",
+    "name": "健康检查",
+    "description": "",
+    "method": "GET",
+    "path": "/api/health",
+    "status": "active",
+    "current_version": 1,
+    "draft_spec": null,
+    "draft_conflicts": [],
+    "created_at": 1791345590.8603747,
+    "updated_at": 1791345590.8641143
+  },
+  {
+    "id": "ctr_1791345590865_f3b04b",
+    "project_id": "proj_1791345590827_4e9791",
+    "name": "登录",
+    "description": "",
+    "method": "POST",
+    "path": "/api/login",
+    "status": "active",
+    "current_version": 1,
+    "draft_spec": null,
+    "draft_conflicts": [],
+    "created_at": 1791345590.8651145,
+    "updated_at": 1791345590.8690085
+  },
+  {
+    "id": "ctr_1791345590870_b98990",
+    "project_id": "proj_1791345590827_4e9791",
+    "name": "用户列表",
+    "description": "",
+    "method": "GET",
+    "path": "/api/users",
+    "status": "active",
+    "current_version": 1,
+    "draft_spec": null,
+    "draft_conflicts": [],
+    "created_at": 1791345590.8700182,
+    "updated_at": 1791345590.8742156
+  }
+]
